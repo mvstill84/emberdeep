@@ -39,7 +39,7 @@ const HUD = {
         const bar = (f, col) => { c.fillStyle = 'rgba(255,255,255,0.15)'; c.fillRect(bx + 50, y + 51, ww - 64, 5); c.fillStyle = col; c.fillRect(bx + 50, y + 51, (ww - 64) * clamp(f, 0, 1), 5); };
         if (w.type === 'bow' && p.charge > 0) bar(p.charge, p.charge >= 1 ? '#fff' : ELEM[w.elem].c);
         if (w.type === 'wand' || w.type === 'staff') bar(p.mana / p.maxMana, p.manaFlash > 0 ? '#ff4d6d' : '#4fa3ff');
-        if (w.type === 'spellbook') { const f = 1 - clamp(p.cd / (w.cd / p.st.rate), 0, 1); bar(f, f >= 1 ? '#ffffff' : ELEM[w.elem].c); }
+        if (w.type === 'spellbook') { const f = 1 - clamp((w.cdT || 0) / (w.cd / p.st.rate), 0, 1); bar(f, f >= 1 ? '#ffffff' : ELEM[w.elem].c); }
       }
     });
     if (p.weapons.length > 1 && Input.last !== 'touch') { c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', bx + 218, by - 20); }
@@ -54,20 +54,26 @@ const HUD = {
     }
     // nearby pickup card
     const k = World.near;
-    if (k) {
+    const key = Input.last === 'touch' ? 'Tap USE' : Input.last === 'pad' ? 'X' : 'E';
+    if (k && k.kind === 'weapon') this.compare(c, W, H, p, k.w, key, font);
+    else if (k) {
       let title, line1, line2 = '', col;
       if (k.kind === 'chest') { title = 'Treasure Chest'; line1 = 'Open it'; col = '#ffd27a'; }
-      else if (k.kind === 'item') { title = k.item.n; line1 = k.item.d; col = k.item.c; const sy = SYNERGIES.find(sy => sy.need.includes(k.item.id) && sy.need.some(n => p.items.includes(n)) && !p.syn.includes(sy.id)); if (sy) line2 = '✦ Completes synergy: ' + sy.n; }
-      else { const w = k.w, cur = p.weapons[p.wi]; title = w.name; col = RARITY[w.rarity].c; line1 = `${RARITY[w.rarity].n} ${w.type} · ${weaponLine(w)}`; line2 = w.quirks.length ? w.quirks.map(q => QUIRKS.find(x => x.id === q).d).join(' · ') : WBASE[w.type].d; if (p.weapons.length >= 2) line2 = (line2 ? line2 + '   ' : '') + `(replaces ${cur.name})`; }
-      const key = Input.last === 'touch' ? 'Tap TAKE' : Input.last === 'pad' ? 'X' : 'E';
+      else if (k.kind === 'portal') {
+        title = k.last ? 'The Way Out' : 'Portal'; col = '#7fd8ff';
+        line1 = k.last ? 'Climb out of the deep' : 'Descend to the next level';
+        if (World.unclaimed()) { line2 = k.confirm ? '⚠ Press again to leave the rewards behind' : '⚠ There are unclaimed rewards in this room'; col = '#ffb057'; }
+      }
+      else { title = k.item.n; line1 = k.item.d; col = k.item.c; const sy = SYNERGIES.find(sy => sy.need.includes(k.item.id) && sy.need.some(n => p.items.includes(n)) && !p.syn.includes(sy.id)); if (sy) line2 = '✦ Completes synergy: ' + sy.n; }
       c.font = font(13, 600); const cw = Math.min(W - 40, Math.max(280, c.measureText(line1).width + 40, c.measureText(line2).width + 40));
       const x = (W - cw) / 2, y = H * 0.62;
       c.fillStyle = 'rgba(14,9,28,0.9)'; roundRect(c, x, y, cw, line2 ? 76 : 58, 10); c.fill(); c.strokeStyle = col; c.lineWidth = 1.5; c.stroke();
       c.textAlign = 'center'; c.fillStyle = col; c.font = font(16, 800); c.fillText(title, W / 2, y + 22);
       c.fillStyle = '#e9e4ff'; c.font = font(13, 600); c.fillText(fitText(c, line1, cw - 20), W / 2, y + 42);
-      if (line2) { c.fillStyle = line2.startsWith('✦') ? '#7fffd4' : 'rgba(233,228,255,0.6)'; c.fillText(fitText(c, line2, cw - 20), W / 2, y + 62); }
+      if (line2) { c.fillStyle = line2.startsWith('✦') ? '#7fffd4' : line2.startsWith('⚠') ? '#ffb057' : 'rgba(233,228,255,0.6)'; c.fillText(fitText(c, line2, cw - 20), W / 2, y + 62); }
       c.fillStyle = '#ffb057'; c.font = font(12, 800); c.fillText(key, W / 2, y + (line2 ? 92 : 74));
     }
+    this.enemyBox(c, W, H, pad, font);
     // banner
     const bn = Game.bannerData;
     if (bn) {
@@ -78,6 +84,61 @@ const HUD = {
       if (bn.sub) { c.font = font(16, 600); c.fillStyle = '#e9e4ff'; c.fillText(bn.sub, W / 2, H * 0.24 + (bn.title ? 30 : 0)); }
       c.globalAlpha = 1;
     }
+  },
+  // side-by-side: what you hold vs. what's on the floor
+  compare(c, W, H, p, nw, key, font) {
+    const cur = p.weapons.length < 2 ? null : p.weapons[p.wi];
+    const cw = Math.min(250, (W - 50) / 2), gap = 14, y = H * 0.5, x0 = W / 2 - cw - gap / 2, x1 = W / 2 + gap / 2;
+    const stats = w => {
+      const rows = [[w.type === 'spellbook' ? 'Spell' : 'Damage', w.type === 'spellbook' ? SPELLS[w.spell].n : Math.round(w.dmg), w.dmg]];
+      rows.push([w.type === 'bow' ? 'Draw' : w.type === 'spellbook' ? 'Cooldown' : 'Speed', w.type === 'bow' ? w.charge.toFixed(2) + 's' : w.type === 'spellbook' ? w.cd.toFixed(1) + 's' : (1 / w.cd).toFixed(1) + '/s', w.type === 'bow' ? -w.charge : w.type === 'spellbook' ? -w.cd : 1 / w.cd]);
+      if (w.type === 'spellbook') rows[0].push(Math.round(w.dmg) + ' dmg');
+      rows.push(['Element', w.elem === 'none' ? '-' : w.elem]);
+      return rows;
+    };
+    const card = (w, x, label, other) => {
+      const lines = w ? w.quirks.map(q => QUIRKS.find(z => z.id === q).d) : [];
+      if (w && !lines.length) lines.push(WBASE[w.type].d);
+      const h = 132 + lines.length * 16;
+      c.fillStyle = 'rgba(14,9,28,0.92)'; roundRect(c, x, y, cw, h, 10); c.fill();
+      c.strokeStyle = w ? RARITY[w.rarity].c : '#555'; c.lineWidth = label === 'NEW' ? 2 : 1.2; c.stroke();
+      c.textAlign = 'left'; c.fillStyle = 'rgba(233,228,255,0.5)'; c.font = font(10, 800); c.fillText(label, x + 12, y + 16);
+      if (!w) { c.fillStyle = '#aaa'; c.font = font(13, 600); c.fillText('Empty slot', x + 12, y + 40); return h; }
+      weaponIcon(c, w, x + cw - 26, y + 26, 26, -0.8);
+      c.fillStyle = RARITY[w.rarity].c; c.font = font(14, 800); c.fillText(fitText(c, w.name, cw - 60), x + 12, y + 36);
+      c.fillStyle = 'rgba(233,228,255,0.6)'; c.font = font(11, 600); c.fillText(`${RARITY[w.rarity].n} ${w.type}`, x + 12, y + 52);
+      const mine = stats(w), theirs = other ? stats(other) : null;
+      mine.forEach((r, i) => {
+        const ry = y + 74 + i * 18;
+        c.fillStyle = 'rgba(233,228,255,0.55)'; c.font = font(12, 600); c.fillText(r[0], x + 12, ry);
+        c.textAlign = 'right'; c.fillStyle = '#e9e4ff'; c.font = font(12, 800);
+        let txt = String(r[1]) + (r[3] ? ' · ' + r[3] : '');
+        if (label === 'NEW' && theirs && typeof r[2] === 'number' && typeof theirs[i][2] === 'number' && r[0] === theirs[i][0]) {
+          const d = r[2] - theirs[i][2], rel = Math.abs(d) / Math.max(0.001, Math.abs(theirs[i][2]));
+          if (rel > 0.03) { c.fillStyle = d > 0 ? '#4ade80' : '#ff6b6b'; txt += d > 0 ? ' ▲' : ' ▼'; }
+        }
+        c.fillText(txt, x + cw - 12, ry); c.textAlign = 'left';
+      });
+      c.fillStyle = 'rgba(233,228,255,0.7)'; c.font = font(11, 600);
+      lines.forEach((l, i) => c.fillText(fitText(c, l, cw - 24), x + 12, y + 132 + i * 16 - 4));
+      return h;
+    };
+    const h = Math.max(card(cur, x0, 'EQUIPPED', null), card(nw, x1, 'NEW', cur));
+    c.textAlign = 'center'; c.fillStyle = '#ffb057'; c.font = font(12, 800);
+    c.fillText(`${key} to ${cur ? 'swap' : 'take'}`, W / 2, y + h + 18);
+  },
+  enemyBox(c, W, H, pad, font) { // name of the last thing you hit
+    const lh = World.lastHit; if (!lh || lh.t <= 0) return;
+    const e = lh.e, a = clamp(lh.t / 0.5, 0, 1), bw = 170, tch = Input.last === 'touch';
+    const x = tch ? pad : W - pad - bw, y = tch ? pad + 92 : H - pad - 48;
+    c.globalAlpha = a;
+    c.fillStyle = 'rgba(14,9,28,0.75)'; roundRect(c, x, y, bw, 40, 8); c.fill();
+    c.textAlign = 'left'; c.fillStyle = e.D.c; c.font = font(12, 800); c.fillText(e.D.n || '', x + 10, y + 16);
+    const tags = [e.burn > 0 && 'burning', e.chill > 0 && 'chilled', e.freeze > 0 && 'frozen', e.stun > 0 && 'stunned', e.bones > 0 && 'reforming', e.dead && 'slain'].filter(Boolean);
+    c.textAlign = 'right'; c.fillStyle = e.burn > 0 ? '#ff9a3c' : 'rgba(233,228,255,0.6)'; c.font = font(10, 700); c.fillText(tags.join(' · '), x + bw - 10, y + 16);
+    c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(x + 10, y + 25, bw - 20, 6);
+    c.fillStyle = '#ff4d6d'; c.fillRect(x + 10, y + 25, (bw - 20) * clamp(e.dead ? 0 : e.hp / e.maxHp, 0, 1), 6);
+    c.globalAlpha = 1; c.textAlign = 'left';
   },
   minimap(c, W, pad, font) {
     const m = 15, tb = Input.touchButtons().find(b => b.id === 'pause'), ox = W - pad - GRID * m - (Input.last === 'touch' ? (tb.r * 2 + 10) / this.u : 0), oy = pad;
@@ -95,8 +156,9 @@ const HUD = {
       if (r.type === 'armory') { c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3, 0, TAU); c.fill(); }
     }
     c.textAlign = 'right'; c.fillStyle = 'rgba(233,228,255,0.6)'; c.font = font(12, 700);
-    c.fillText(`${levelLabel(World.world, World.level)} · ${Game.seed}`, ox + GRID * m + 6, oy + GRID * m + 22);
-    if (Game.secret) { c.fillStyle = '#7fffd4'; c.fillText(Game.secret.n, ox + GRID * m + 6, oy + GRID * m + 38); }
+    c.fillText(`${levelLabel(World.world, World.level)} · ${World.theme.n}`, ox + GRID * m + 6, oy + GRID * m + 22);
+    c.fillStyle = 'rgba(233,228,255,0.35)'; c.font = font(11, 600); c.fillText('Seed ' + Game.seed, ox + GRID * m + 6, oy + GRID * m + 37);
+    if (Game.secret) { c.fillStyle = '#7fffd4'; c.fillText(Game.secret.n, ox + GRID * m + 6, oy + GRID * m + 52); }
   },
   touch(c, W, H) {
     const max = Math.min(W, H) * 0.09;
@@ -116,7 +178,7 @@ const HUD = {
       c.strokeStyle = b.id === 'attack' ? 'rgba(255,200,140,0.7)' : 'rgba(233,228,255,0.4)'; c.lineWidth = b.id === 'attack' ? 2.5 : 1.5; c.stroke();
       if (b.id === 'attack') { weaponIcon(c, w, b.x, b.y, b.r * 1.0, -0.8); continue; }
       c.fillStyle = '#f4eeff'; c.textAlign = 'center'; c.font = `800 ${Math.round(b.r * 0.42)}px ui-rounded, system-ui, sans-serif`;
-      c.fillText({ roll: 'ROLL', swap: 'SWAP', use: 'TAKE', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
+      c.fillText({ roll: 'ROLL', swap: 'SWAP', use: 'USE', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
     }
   },
 };
@@ -250,14 +312,15 @@ const Menu = {
       this.on('b-back', () => this.show('title'));
     } else if (name === 'pause') {
       const p = World.players[0];
-      const items = p.items.map(id => ITEMS.find(x => x.id === id)).map(it => `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}</b><small>${it.d}</small></div></div>`).join('');
+      const items = p.items.map(id => ITEMS.find(x => x.id === id)).map((it, i) => `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}</b><small>${it.d}</small></div><button class="btn" id="drop-${i}">Drop</button></div>`).join('');
       const syn = p.syn.map(id => SYNERGIES.find(s => s.id === id)).map(s => `<div class="card"><div class="grow"><b class="secret">✦ ${s.n}</b><small>${s.d}</small></div></div>`).join('');
-      this.html(`<h2>Paused</h2><div class="sub">Seed <b>${Game.seed}</b> · Level ${levelLabel(World.world, World.level)} · ${fmtTime(Game.runTime)}</div>
+      this.html(`<h2>Paused</h2><div class="sub"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
         <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>
         <button class="btn" id="b-res">Resume</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button></div>
         <button class="btn small" id="b-quit">Abandon Run</button>`);
       this.on('b-res', () => Game.togglePause());
+      p.items.forEach((id, i) => this.on('drop-' + i, () => { World.dropItem(p, i); this.show('pause'); }));
       this.on('b-save', () => { Game.saveSeed(); document.getElementById('b-save').textContent = 'Saved ✓'; });
       this.on('b-mute', () => { Snd.setMuted(!M.muted); document.getElementById('b-mute').textContent = M.muted ? 'Sound: Off' : 'Sound: On'; });
       this.on('b-quit', () => { Game.end(false); });

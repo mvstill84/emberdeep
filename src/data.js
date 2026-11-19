@@ -107,12 +107,12 @@ const hasQ = (w, id) => w.quirks.includes(id);
 // ===== Items: each one hooks into the attack pipeline. Synergies fall out of combinations. =====
 // Hooks: shoot(proj) | hit(enemy, src) | kill(enemy, src) | roll() | hurt() | clear()
 const ITEMS = [
-  { id: 'heart', n: 'Ember Heart', d: '+1 heart, heal fully', c: '#ff5470', pool: 'base', g: 'heart', apply(p) { p.maxHp += 2; p.hp = p.maxHp; } },
+  { id: 'heart', n: 'Ember Heart', d: '+1 max heart for the rest of the run, heal fully', c: '#ff5470', pool: 'base', g: 'heart', apply(p) { p.maxHp += 2; }, onPick(p) { p.hp = p.maxHp; } },
   { id: 'boots', n: 'Quicksilver Boots', d: 'Move faster, roll more often', c: '#9ff', pool: 'base', g: 'boot', apply(p) { p.st.speed *= 1.15; p.st.rollCd *= 0.6; } },
   { id: 'twinmoon', n: 'Twin Moon', d: '+1 projectile, a bit less damage', c: '#e8e8ff', pool: 'base', g: 'moon', apply(p) { p.st.extraShots++; p.st.dmg *= 0.88; } },
   { id: 'ricochet', n: 'Ricochet Charm', d: 'Shots bounce off walls', c: '#7dffb0', pool: 'base', g: 'ring', apply(p) { p.st.bounce++; } },
   { id: 'haste', n: 'Haste Totem', d: '+22% attack speed', c: '#ffe066', pool: 'base', g: 'bolt', apply(p) { p.st.rate *= 1.22; } },
-  { id: 'berserk', n: 'Berserker Band', d: '+30% damage, -1 heart', c: '#ff4040', pool: 'base', g: 'fang', apply(p) { p.st.dmg *= 1.3; p.maxHp = Math.max(2, p.maxHp - 2); p.hp = Math.min(p.hp, p.maxHp); } },
+  { id: 'berserk', n: 'Berserker Band', d: '+30% damage, but every hit costs a whole heart', c: '#ff4040', pool: 'base', g: 'fang', apply(p) { p.st.dmg *= 1.3; p.st.hurtMult = 2; } },
   { id: 'mirror', n: 'Mirror Ward', d: 'Melee swings reflect enemy shots back', c: '#bfe3ff', pool: 'base', g: 'shield', apply(p) { p.st.reflect = true; } },
   { id: 'hungry', n: 'Hungry Blade', d: 'Every 15 kills, heal half a heart', c: '#ff7aa8', pool: 'base', g: 'fang', apply(p) { p.hooks.kill.push(() => { p.hungry = (p.hungry || 0) + 1; if (p.hungry >= 15) { p.hungry = 0; World.heal(1); } }); } },
   { id: 'reach', n: 'Giant\'s Grip', d: 'Melee reaches farther and hits harder', c: '#d9a066', pool: 'base', g: 'sword', apply(p) { p.st.reach *= 1.3; p.st.meleeDmg *= 1.2; } },
@@ -166,19 +166,28 @@ const WORLDS = [null,
     n: 'The Sunken Caverns', style: 'cave', tint: '#5fd4ff',
     floor: ['#1d1822', '#18141e', '#221c29'], wall: '#2a2131', face: '#3a2e44', pillar: 'stalagmite', deco: 'crystal',
     pools: [['goblin', 'goblin', 'goblinArcher', 'stirge'], ['goblin', 'goblinArcher', 'stirge', 'kobold', 'cube'], ['goblin', 'goblinArcher', 'kobold', 'cube', 'stirge']],
-    mini: { n: 'Bugbear Chieftain', c: '#c98a4a', shape: 5 }, boss: { title: 'Hobgoblin Warlord', c: '#ff7a3a', shape: 6 }, minions: ['goblin', 'goblin', 'stirge'],
+    bosses: [
+      { title: 'Hobgoblin Warlord', look: 'goblin', c: '#ff7a3a', moves: ['charge', 'volley', 'horn', 'fans'], summon: ['goblin', 'goblin', 'goblinArcher'] },
+      { title: 'Bugbear Chieftain', look: 'gnoll', c: '#c98a4a', moves: ['leap', 'charge', 'spin', 'fans'] },
+    ],
   },
   {
     n: 'The Forgotten Crypts', style: 'crypt', tint: '#b58bff',
     floor: ['#1a1c26', '#15161e', '#1e2130'], wall: '#252939', face: '#353b54', pillar: 'tomb', deco: 'candle',
     pools: [['skeleton', 'skeleton', 'skelArcher', 'zombie'], ['skeleton', 'skelArcher', 'zombie', 'wraith', 'necro'], ['skeleton', 'skelArcher', 'zombie', 'wraith', 'necro', 'cube']],
-    mini: { n: 'Bone Knight', c: '#d8d0b8', shape: 4 }, boss: { title: 'the Lich-Priest', c: '#c77dff', shape: 7 }, minions: ['skeleton', 'skeleton', 'wraith'],
+    bosses: [
+      { title: 'the Lich-Priest', look: 'necro', c: '#c77dff', moves: ['teleport', 'spiral', 'skulls', 'raise'], summon: ['skeleton', 'skeleton', 'skelArcher'] },
+      { title: 'the Bone Knight', look: 'skeleton', c: '#e8e2cf', moves: ['charge', 'sweep', 'raise', 'fans'], summon: ['skeleton', 'skeleton'] },
+    ],
   },
   {
     n: 'The Overgrown Ruins', style: 'forest', tint: '#8dff7a',
     floor: ['#13201a', '#101a15', '#17261e'], wall: '#1d3326', face: '#2a4634', pillar: 'tree', deco: 'flower',
     pools: [['gnoll', 'gnoll', 'blight', 'blight', 'spider'], ['gnoll', 'blight', 'spider', 'sprite', 'owlbear'], ['gnoll', 'spider', 'sprite', 'owlbear', 'blight']],
-    mini: { n: 'Owlbear Matriarch', c: '#c8925a', shape: 5 }, boss: { title: 'the Blighted Treant', c: '#7dff7a', shape: 8 }, minions: ['blight', 'blight', 'gnoll'],
+    bosses: [
+      { title: 'Owlbear Matriarch', look: 'owlbear', c: '#c8925a', moves: ['leap', 'charge', 'swipe', 'roar'] },
+      { title: 'the Blighted Treant', look: 'treant', c: '#7dff7a', moves: ['roots', 'seeds', 'summon', 'sweep'], summon: ['blight', 'blight', 'blight', 'blight'] },
+    ],
   },
 ];
 const WORLD_COUNT = 3;
