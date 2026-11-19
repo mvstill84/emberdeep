@@ -50,6 +50,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
+const BUILD = 7;
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -131,7 +132,7 @@ const Input = {
   mouse: { x: 0, y: 0, l: false, r: false, rPressed: false },
   last: 'kb', // 'kb' | 'touch' | 'pad'
   sticks: { L: null, R: null }, // touch sticks {id, ox, oy, x, y}
-  tbtn: { roll: false, swap: false, use: false }, // touch button presses this frame
+  tbtn: { roll: false, swap: false, use: false, potion: false, relic: false }, // touch button presses this frame
   atk: null, // pointer id holding the touch attack button
   padPrev: [],
   init(canvas) {
@@ -179,6 +180,8 @@ const Input = {
       { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.62 },
       { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.55 },
       { id: 'use', x: w - A * 3.05, y: h - A * 2.75, r: A * 0.6 },
+      { id: 'potion', x: w - A * 4.95, y: h - A * 0.9, r: A * 0.5 },
+      { id: 'relic', x: w - A * 4.75, y: h - A * 2.3, r: A * 0.5 },
       { id: 'pause', x: w - s * 0.06, y: s * 0.06 + 4, r: s * 0.042 },
     ];
   },
@@ -211,7 +214,7 @@ const Input = {
   pads() { return navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []; },
   // Read one player's controls. src: 'auto' follows the last-used device (solo); 'pad0'.. for co-op later.
   read(src, player) {
-    const out = { mx: 0, my: 0, aim: null, attack: false, roll: false, swap: false, use: false, device: 'kb' };
+    const out = { mx: 0, my: 0, aim: null, attack: false, roll: false, swap: false, use: false, potion: false, relic: false, device: 'kb' };
     let dev = src;
     if (src === 'auto') {
       const p = this.pads()[0];
@@ -229,14 +232,15 @@ const Input = {
       out.attack = this.mouse.l;
       out.roll = this.pressed.has(' ') || this.pressed.has('shift') || this.mouse.rPressed;
       out.swap = this.pressed.has('q') || this.pressed.has('tab');
-      out.use = this.pressed.has('e') || this.pressed.has('f');
+      out.use = this.pressed.has('e');
+      out.potion = this.pressed.has('r'); out.relic = this.pressed.has('f');
     } else if (dev === 'touch') {
       const max = Math.min(innerWidth, innerHeight) * 0.09;
       const L = this.stickVec(this.sticks.L, max), Rv = this.stickVec(this.sticks.R, max);
       out.mx = L.x; out.my = L.y;
       if (Rv.m > 0.15) { out.aim = Math.atan2(Rv.y, Rv.x); out.attack = true; out.assist = true; }
       else if (this.atk !== null) { out.attack = true; out.autoAim = true; }
-      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use;
+      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
     } else {
       const p = this.pads()[+dev.slice(3)] || null;
       if (p) {
@@ -248,8 +252,8 @@ const Input = {
         const prev = this.padPrev[p.index] || [];
         const tap = i => btn(i) && !prev[i];
         out.attack = btn(7) || btn(5) || (out.aim !== null && Math.hypot(ax, ay) > 0.6);
-        out.roll = tap(0) || tap(4) || tap(6);
-        out.swap = tap(3); out.use = tap(2);
+        out.roll = tap(0) || tap(6);
+        out.swap = tap(3); out.use = tap(2); out.potion = tap(1); out.relic = tap(4);
         if (tap(9)) Game.togglePause();
       }
     }
@@ -257,7 +261,7 @@ const Input = {
   },
   endFrame() {
     this.pressed.clear(); this.mouse.rPressed = false;
-    this.tbtn.roll = this.tbtn.swap = this.tbtn.use = false;
+    this.tbtn.roll = this.tbtn.swap = this.tbtn.use = this.tbtn.potion = this.tbtn.relic = false;
     for (const p of this.pads()) this.padPrev[p.index] = p.buttons.map(b => b.pressed);
   },
 };
@@ -586,6 +590,28 @@ const WORLD_COUNT = 3;
 const levelLabel = (w, l) => `${w}-${l}`;
 
 // ===== Sanctum unlocks (permanent). A full run (~250 embers) buys about one. =====
+// ===== Potions (one-shot, R) and relics (F) =====
+const POTIONS = [
+  { id: 'heal', n: 'Healing Potion', d: 'Restore 1 heart', c: '#ff5470', cost: 60, use(p) { World.heal(2); } },
+  { id: 'superheal', n: 'Superior Healing Potion', d: 'Restore every heart', c: '#ff2050', cost: 170, use(p) { World.heal(p.maxHp); } },
+  { id: 'haste', n: 'Haste Potion', d: '+40% attack speed for 15s', c: '#ffe066', cost: 80, dur: 15, buff(p) { p.st.rate *= 1.4; } },
+  { id: 'swift', n: 'Potion of Swiftness', d: '+30% move speed, rolls recharge faster, 15s', c: '#99ffff', cost: 70, dur: 15, buff(p) { p.st.speed *= 1.3; p.st.rollCd *= 0.6; } },
+  { id: 'seeking', n: 'Oil of Seeking', d: 'Shots home in on foes for 20s', c: '#d6a2ff', cost: 90, dur: 20, buff(p) { p.st.homing += 3; } },
+  { id: 'piercing', n: 'Oil of Piercing', d: 'Shots pierce 2 more foes for 20s', c: '#bfe3ff', cost: 90, dur: 20, buff(p) { p.st.pierceAdd += 2; } },
+  { id: 'fireoil', n: 'Fire Oil', d: 'Every hit sets foes ablaze for 20s', c: '#ff7a2a', cost: 80, dur: 20, buff(p) { p.st.addElem.add('fire'); } },
+  { id: 'storm', n: 'Storm Draught', d: 'Lightning arcs from you to nearby foes for 12s', c: '#f2f25a', cost: 110, dur: 12, buff(p) { p.st.aura = true; } },
+  { id: 'bomb', n: 'Bomb', d: 'Throw it where you aim. Big blast, breaks rocks', c: '#ff9a3c', cost: 50, use(p) { World.throwBomb(p); } },
+];
+const RELICS = [
+  { id: 'hourglass', n: 'Timeless Hourglass', d: 'Freeze every foe and shot for 4s', c: '#ffd27a', active: true, cd: 3, cost: 550, use(p) { World.timeStop(4); } },
+  { id: 'decoy', n: 'Decoy Totem', d: 'Foes chase a decoy instead of you for 7s', c: '#c8a0ff', active: true, cd: 2, cost: 450, use(p) { World.spawnDecoy(p); } },
+  { id: 'gnome', n: 'Gnome-in-a-Box', d: 'Deploys a gnome with a hand cannon for 12s', c: '#7dff7a', active: true, cd: 2, cost: 500, use(p) { World.spawnGnome(p); } },
+  { id: 'regen', n: 'Ring of Regeneration', d: 'Heal half a heart every 3 rooms cleared', c: '#ff7aa8', active: false, cost: 500 },
+  { id: 'displace', n: 'Cloak of Displacement', d: 'The first hit in each fight misses you', c: '#7fd8ff', active: false, cost: 600 },
+  { id: 'amulet', n: 'Ember Amulet', d: '+25% embers', c: '#ffb057', active: false, cost: 400 },
+];
+const potionById = id => POTIONS.find(x => x.id === id), relicById = id => RELICS.find(x => x.id === id);
+
 // ===== Classes =====
 const CLASSES = {
   fighter: {
@@ -632,7 +658,7 @@ const solidT = t => t === VOID || t === WALL || t === PILLAR || t === SHUT;
 
 const World = {
   world: 1, level: 1, depth: 1, theme: null, map: null, roomId: null, rooms: [], room: null, locked: false, waves: [], waveT: 0,
-  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], ptraps: [], lastHit: null,
+  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], ptraps: [], lastHit: null, timeStopT: 0, decoy: null, gnome: null,
   flow: null, flowKey: -1, flowT: 0, boss: null, time: 0,
 
   // ---------- generation ----------
@@ -836,7 +862,7 @@ const World = {
   // ---------- run setup ----------
   startLevel(w, l, keepPlayers) {
     this.gen(w, l);
-    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.near = null; this.lastNear = null;
+    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     this.placeKeyAndChest();
@@ -848,7 +874,7 @@ const World = {
   },
   baseStats() {
     const cls = Game.cls || 'fighter';
-    return { speed: 155, rollCd: 0.42, dmg: Game.mods.glass ? 3 : 1, meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35 };
+    return { speed: 155, rollCd: 0.42, dmg: Game.mods.glass ? 3 : 1, meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
   },
   // Rebuild stats from scratch from the items held, so items can be dropped cleanly
   recalc(p) {
@@ -857,6 +883,7 @@ const World = {
     for (const id of p.items) ITEMS.find(it => it.id === id).apply(p);
     p.syn = SYNERGIES.filter(s => s.need.every(id => p.items.includes(id))).map(s => s.id);
     for (const s of SYNERGIES) if (p.syn.includes(s.id) && s.apply) s.apply(p);
+    for (const b of p.buffs || []) potionById(b.id).buff(p); // active potion effects
     p.hp = Math.min(p.hp, p.maxHp);
   },
   dropItem(p, idx) {
@@ -878,7 +905,8 @@ const World = {
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
-      mana: maxMana, maxMana, manaRegen: C.regen, exhausted: false, keys: 0, stolen: null, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
+      mana: maxMana, maxMana, manaRegen: C.regen, exhausted: false, keys: 0, stolen: null,
+      potion: null, relic: null, relicCd: 0, buffs: [], roomsCleared: 0, dispReady: false, auraT: 0, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
     };
   },
 
@@ -973,8 +1001,10 @@ const World = {
     const p0 = this.players[0];
     for (const p of this.players) if (!p.dead) this.updPlayer(p, dt);
     this.updRooms();
-    if (this.room && this.locked) { this.flowT -= dt; if (this.flowT <= 0) { this.flowT = 0.15; this.buildFlow(p0); } }
-    for (const e of this.enemies) this.updEnemy(e, dt);
+    if (this.room && this.locked) { this.flowT -= dt; if (this.flowT <= 0) { this.flowT = 0.15; this.buildFlow(this.decoy || p0); } }
+    this.timeStopT -= dt;
+    this.updAllies(dt);
+    if (this.timeStopT <= 0) for (const e of this.enemies) this.updEnemy(e, dt);
     const en = this.enemies;
     for (let i = 0; i < en.length; i++) for (let j = i + 1; j < en.length; j++) {
       const a = en[i], b = en[j]; if (a.dead || b.dead || a.bones > 0 || b.bones > 0 || a.ghost || b.ghost) continue;
@@ -1051,6 +1081,10 @@ const World = {
       p.vx = lerp(p.vx, inp.mx * sp, k); p.vy = lerp(p.vy, inp.my * sp, k);
       this.move(p, p.vx * dt, p.vy * dt);
     }
+    if (p.buffs.length) { let changed = false; for (const b of p.buffs) { b.t -= dt; if (b.t <= 0) changed = true; } if (changed) { p.buffs = p.buffs.filter(b => b.t > 0); this.recalc(p); } }
+    if (p.st.aura) { p.auraT -= dt; if (p.auraT <= 0) { p.auraT = 0.5; this.chain({ x: p.x, y: p.y }, 7 * p.st.dmg, 1, p, p.x, p.y); } }
+    if (inp.potion) this.usePotion(p);
+    if (inp.relic) this.useRelic(p);
     if (inp.swap && p.weapons.length > 1 && !p.stolen) { p.wi = 1 - p.wi; p.charge = 0; p.swapT = 0.12; Snd.play('ui'); }
     if (inp.use) this.interact(p);
     if (p.echo > 0) { p.echo -= dt; if (p.echo <= 0) this.swing(p, p.echoW, true); }
@@ -1075,6 +1109,42 @@ const World = {
         else { if (!p.exhausted) { p.mana = 0; p.exhausted = true; } W2.cdT = 0.25; p.manaFlash = 0.4; Snd.play('fizzle'); }
       } break;
       case 'spellbook': if (ready) { this.cast(p, W2); cdSet(); } break;
+    }
+  },
+  usePotion(p) {
+    const P = p.potion && potionById(p.potion); if (!P) return;
+    p.potion = null; Snd.play('heart'); this.burst(p.x, p.y, 20, P.c, 160, 0.5);
+    if (P.use) P.use(p);
+    if (P.buff) { p.buffs = p.buffs.filter(b => b.id !== P.id); p.buffs.push({ id: P.id, t: P.dur, max: P.dur }); this.recalc(p); }
+    Game.banner('', P.n, 1.2);
+  },
+  useRelic(p) {
+    const Rl = p.relic && relicById(p.relic); if (!Rl || !Rl.active) return;
+    if (p.relicCd > 0) { Snd.play('fizzle'); this.text(p.x, p.y - 24, `Recharging: ${p.relicCd} room${p.relicCd > 1 ? 's' : ''}`, '#aaa'); return; }
+    p.relicCd = Rl.cd; Rl.use(p); Snd.play('synergy');
+  },
+  throwBomb(p) {
+    const w = { elem: 'none', quirks: [] };
+    const b = this.mkProj(p, w, p.aim, { speed: 330, r: 7, kind: 'bomb', life: 0.75, dmg: 0, blast: { rad: 95, dmg: 45 * p.st.dmg, elem: 'none' }, pierce: 99, bounce: 1, homing: 0, drag: 2.2 });
+    b.hit = new Set(this.enemies); // sails over foes and goes off where it lands
+  },
+  timeStop(sec) { this.timeStopT = sec; Render.kick(6); Game.banner('', 'Time stands still', 1.2); },
+  spawnDecoy(p) { this.decoy = { x: p.x, y: p.y, vx: 0, vy: 0, t: 7, r: 9, dead: false, isDecoy: true }; this.burst(p.x, p.y, 20, '#c8a0ff', 160, 0.5); },
+  spawnGnome(p) { const s = this.freeSpot(p.x + Math.cos(p.aim) * 30, p.y + Math.sin(p.aim) * 30); this.gnome = { x: s.x, y: s.y, t: 12, cd: 0.6, aim: p.aim, p }; this.burst(s.x, s.y, 20, '#7dff7a', 160, 0.5); Snd.play('blink'); },
+  updAllies(dt) {
+    if (this.decoy) { this.decoy.t -= dt; if (this.decoy.t <= 0) { this.burst(this.decoy.x, this.decoy.y, 16, '#c8a0ff', 140, 0.4); this.decoy = null; } }
+    const g = this.gnome;
+    if (g) {
+      g.t -= dt; g.cd -= dt;
+      let best = null, bd = 420 * 420;
+      for (const e of this.enemies) { if (e.dead || e.spawnT > 0 || e.air || e.bones > 0) continue; const dd = d2(g.x, g.y, e.x, e.y); if (dd < bd && this.los(g.x, g.y, e.x, e.y)) { bd = dd; best = e; } }
+      if (best) g.aim = Math.atan2(best.y - g.y, best.x - g.x);
+      if (best && g.cd <= 0) {
+        g.cd = 0.55; const p = g.p;
+        this.projs.push({ x: g.x + Math.cos(g.aim) * 12, y: g.y + Math.sin(g.aim) * 12, vx: Math.cos(g.aim) * 480, vy: Math.sin(g.aim) * 480, owner: 'p', life: 1, r: 5, kind: 'bolt', dmg: 13 * p.st.dmg * (1 + 0.1 * (this.depth - 1)), elem: 'none', color: '#ffd27a', hit: new Set(), depth: 1, pierce: 0, bounce: 0, homing: 0, p });
+        Snd.play('thunk'); this.burst(g.x + Math.cos(g.aim) * 14, g.y + Math.sin(g.aim) * 14, 4, '#ffd27a', 80, 0.2);
+      }
+      if (g.t <= 0) { this.burst(g.x, g.y, 16, '#7dff7a', 140, 0.4); this.gnome = null; }
     }
   },
   blink(p) { // Mage: hop up to ~150px, through shots, stopping at walls
@@ -1139,6 +1209,7 @@ const World = {
       hit: new Set(), depth: 0, p, leech: hasQ(w, 'leech'), color: ELEM[w.elem].c, stun: hasQ(w, 'stun') && R.chance(0.25) ? 0.7 : 0,
     }, o);
     pr.vx = Math.cos(a) * o.speed; pr.vy = Math.sin(a) * o.speed;
+    if (pr.kind !== 'spark' && pr.kind !== 'bomb') pr.pierce += p.st.pierceAdd;
     for (const h of p.hooks.shoot) h(pr);
     this.projs.push(pr); return pr;
   },
@@ -1293,7 +1364,7 @@ const World = {
     this.burst(e.x, e.y, 8, '#ffffff', 120, 0.3);
     Snd.play('kill'); Render.kick(e.boss ? 14 : 3);
     p.kills++; Meta.data.stats.kills++;
-    const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1));
+    const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1) * (p.relic === 'amulet' ? 1.25 : 1) + (p.relic === 'amulet' ? R() * 0.5 : 0));
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });
     if (src.leech && R.chance(0.08)) this.heal(1);
@@ -1311,6 +1382,7 @@ const World = {
     this.parts.push({ x, y, vx: 0, vy: 0, life: 0.25, max: 0.25, size: rad, color, glow: true, ring: true });
     Snd.play('explode'); Render.kick(5);
     for (const e of this.enemies) if (!e.dead && d2(x, y, e.x, e.y) < (rad + e.r) ** 2) this.damage(e, dmg, { x, y, depth, aoe: true, elem: 'none', blunt: true, ...extra });
+    if (rad >= 70) for (const i of [...this.thp.keys()]) { const tx = (i % MW) * T + T / 2, ty = Math.floor(i / MW) * T + T / 2; if (d2(x, y, tx, ty) < rad * rad) this.hitTile(i, 3); }
   },
   // hops === 2: fan out from the origin (Storm Coil). More hops: jump foe to foe (Chain Lightning).
   chain(from, dmg, depth, p, x = from.x, y = from.y, hops = 2) {
@@ -1343,6 +1415,7 @@ const World = {
 
   hurt(p, n = 1) {
     if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.blinkInv > 0 || p.dead || Game.state !== 'play') return;
+    if (p.relic === 'displace' && p.dispReady) { p.dispReady = false; p.inv = 0.8; this.text(p.x, p.y - 24, 'Missed!', '#7fd8ff'); this.burst(p.x, p.y, 14, '#7fd8ff', 160, 0.4); Snd.play('blink'); return; }
     p.hp -= n * (p.st.hurtMult || 1); p.inv = 1.15;
     Snd.play('hurt'); Render.kick(9); Game.hitstop(0.09); Render.flash = 0.25;
     this.burst(p.x, p.y, 20, '#ff4060', 220, 0.5);
@@ -1391,7 +1464,8 @@ const World = {
     if (e.freeze > 0) { e.freeze -= dt; return; }
     if (e.stun > 0) { e.stun -= dt; return; }
     if (e.stagger > 0) { e.stagger -= dt; return; }
-    const p = this.players.find(q => !q.dead); if (!p) return;
+    const real = this.players.find(q => !q.dead); if (!real) return;
+    const p = this.decoy || real; // a decoy pulls every foe's attention
     const dx = p.x - e.x, dy = p.y - e.y, dist = Math.hypot(dx, dy), toP = Math.atan2(dy, dx);
     const slow = e.chill > 0 ? 0.55 : 1, sp = e.D.sp * slow;
     let mx = 0, my = 0;
@@ -1507,7 +1581,7 @@ const World = {
       case 'boss': this.updBoss(e, p, dt, toP, dist, go); break;
     }
     if (mx || my) this.move(e, mx * dt, my * dt);
-    if (!e.air && dist < e.r + p.r - 2 && p.inv <= 0 && p.roll <= 0.03 && p.blinkInv <= 0 && p.lunge <= 0) {
+    if (!p.isDecoy && !e.air && dist < e.r + p.r - 2 && p.inv <= 0 && p.roll <= 0.03 && p.blinkInv <= 0 && p.lunge <= 0) {
       if (e.D.engulf) {
         p.slowT = 1.6;
         if (!p.stolen && p.weapons.length > 1 && !e.holding) { p.stolen = { idx: p.wi, t: 4, by: e }; e.holding = p.weapons[p.wi]; p.wi = 1 - p.wi; p.charge = 0; this.text(p.x, p.y - 24, 'Weapon engulfed!', '#6fe3c8'); Snd.play('fizzle'); }
@@ -1643,6 +1717,8 @@ const World = {
     this.pickups.push({ kind: 'chest', x: cx, y: cy - T * 0.5, t: 0, room: r, n: 3 });
     this.pickups.push({ kind: 'heart', x: cx - T * 2, y: cy + T * 1.5, t: 0 });
     if (!last) this.pickups.push({ kind: 'weapon', x: cx + T * 2, y: cy + T * 1.5, w: makeWeapon(RNG(hash(Game.seedNum, this.depth, 4242)), { depth: this.depth, src: 'boss' }), t: 0 });
+    const br = RNG(hash(Game.seedNum, this.depth, 4343));
+    if (!last && br.chance(0.35)) this.pickups.push({ kind: 'relic', x: cx + T * 3.5, y: cy - T * 0.5, t: 0, id: br.pick(RELICS).id });
   },
 
   // ---------- rooms ----------
@@ -1659,6 +1735,7 @@ const World = {
   setDoors(r, shut) { for (const i of r.doors) this.map[i] = shut ? SHUT : DOOR; },
   enterRoom(r) {
     if (r.type === 'combat' || r.type === 'boss' || r.type === 'exit') {
+      for (const q of this.players) q.dispReady = true;
       this.locked = true; this.setDoors(r, true); Snd.play('door'); Music.target = 1;
       if (r.type === 'boss') { this.waves = []; this.spawnBoss(r); }
       else if (r.type === 'exit') { this.waves = r.waves.map(w => w.slice()); this.waveT = 0.3; this.spawnWave(this.waves.shift()); Game.banner('', 'The way down is guarded', 1.6); }
@@ -1680,6 +1757,9 @@ const World = {
     this.hazards = [];
     Snd.play('clear'); Music.target = 0;
     const p = this.players[0]; for (const h of p.hooks.clear) h();
+    p.roomsCleared++;
+    if (p.relicCd > 0) { p.relicCd--; if (!p.relicCd && p.relic) this.text(p.x, p.y - 30, relicById(p.relic).n + ' ready', '#ffd27a'); }
+    if (p.relic === 'regen' && p.roomsCleared % 3 === 0) this.heal(1);
     if (r.type === 'exit') {
       const cx = r.mx * T + T / 2, cy = r.my * T + T / 2;
       this.pickups.push({ kind: 'portal', x: cx, y: cy + T * 2.5, t: 0, last: false });
@@ -1692,7 +1772,8 @@ const World = {
       const rr = RNG(hash(Game.seedNum, this.depth, r.id, 66)), roll = rr();
       const spot = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2);
       if (roll < 0.12) this.pickups.push({ kind: 'weapon', ...spot, w: makeWeapon(rr, { depth: this.depth }), t: 0 });
-      else if (roll < 0.36) this.pickups.push({ kind: rr.chance(0.6) ? 'half' : 'heart', ...spot, t: 0 });
+      else if (roll < 0.19) this.pickups.push({ kind: 'potion', ...spot, id: rr.pick(POTIONS).id, t: 0 });
+      else if (roll < 0.40) this.pickups.push({ kind: rr.chance(0.6) ? 'half' : 'heart', ...spot, t: 0 });
     }
   },
   chooseItems(rng, n, p) {
@@ -1748,7 +1829,7 @@ const World = {
     }
     this.pickups = this.pickups.filter(k => !k.gone);
     this.near = null; let bd = 40 * 40;
-    for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest'].includes(k.kind) && k.t > 0.5) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; this.near = k; } }
+    for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest', 'potion', 'relic'].includes(k.kind) && k.t > 0.5) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; this.near = k; } }
     if (this.near !== this.lastNear) { if (this.lastNear) this.lastNear.confirm = false; this.lastNear = this.near; }
   },
   interact(p) {
@@ -1756,6 +1837,14 @@ const World = {
     if (k.kind === 'portal') {
       if (this.unclaimed() && !k.confirm) { k.confirm = true; Snd.play('ui'); return; }
       k.gone = true; Snd.play('portal'); Game.nextLevel(k.last); return;
+    }
+    if (k.kind === 'potion' || k.kind === 'relic') {
+      k.gone = true; const slot = k.kind, old = p[slot];
+      p[slot] = k.id; if (slot === 'relic') p.relicCd = 0;
+      if (old) this.pickups.push({ kind: slot, id: old, x: k.x, y: k.y + 2, t: 0 });
+      const D = slot === 'potion' ? potionById(k.id) : relicById(k.id);
+      Snd.play('item'); this.text(p.x, p.y - 24, D.n, D.c);
+      this.pickups = this.pickups.filter(o => !o.gone); return;
     }
     if (k.kind === 'lockchest') {
       const r = this.roomAt(k.x, k.y) || k.room;
@@ -1795,6 +1884,8 @@ const World = {
   chestLoot(x, y) {
     const rng = RNG(hash(Game.seedNum, this.depth, 778));
     this.pickups.push({ kind: 'weapon', x, y, t: 0, w: makeWeapon(rng, { depth: this.depth, src: 'chest' }) });
+    if (rng.chance(0.25)) this.pickups.push({ kind: 'relic', x: x + 40, y, t: 0, id: rng.pick(RELICS).id });
+    else if (rng.chance(0.5)) this.pickups.push({ kind: 'potion', x: x + 40, y, t: 0, id: rng.pick(POTIONS).id });
     for (let i = 0; i < 8; i++) this.pickups.push({ kind: 'ember', x, y, vx: R.range(-140, 140), vy: R.range(-140, 140), t: 0 });
     this.burst(x, y, 30, '#ffd27a', 220, 0.6); Snd.play('item');
   },
@@ -1811,12 +1902,14 @@ const World = {
   // ---------- projectiles ----------
   endProj(pr) {
     pr.dead = true;
-    if (pr.blast) this.explode(pr.x, pr.y, pr.blast.rad, pr.blast.dmg, 1, '#ff7a2a', { elem: 'fire', p: pr.p, crit: pr.crit });
+    if (pr.blast) this.explode(pr.x, pr.y, pr.blast.rad, pr.blast.dmg, 1, pr.blast.elem === 'none' ? '#ffb057' : '#ff7a2a', { elem: pr.blast.elem || 'fire', p: pr.p, crit: pr.crit });
     else this.burst(pr.x, pr.y, 4, pr.color, 90, 0.25);
   },
   updProjs(dt) {
     for (const pr of this.projs) {
       if (pr.dead) continue;
+      if (pr.owner === 'e' && this.timeStopT > 0) continue; // frozen in place
+      if (pr.drag) { const k = Math.exp(-pr.drag * dt); pr.vx *= k; pr.vy *= k; }
       pr.life -= dt; if (pr.life <= 0) { if (pr.owner === 'p') this.endProj(pr); else pr.dead = true; continue; }
       if (pr.owner === 'p' && pr.homing > 0) {
         let best = null, bd = 280 * 280;
@@ -1937,10 +2030,12 @@ const Render = {
     for (const s of World.parts) if (!s.glow && !s.ring) { c.globalAlpha = clamp(s.life / s.max, 0, 1) * 0.5; c.fillStyle = s.color; c.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size); }
     c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
     for (const e of World.enemies) this.enemy(e);
+    this.allies();
     for (const p of World.players) if (!p.dead) this.player(p);
     this.fx();
     c.setTransform(1, 0, 0, 1, 0, 0);
     if (Game.mods.dark) this.darkness();
+    if (World.timeStopT > 0) { c.fillStyle = `rgba(120,160,255,${Math.min(0.18, World.timeStopT * 0.1)})`; c.fillRect(0, 0, W, H); }
     const vg = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
     c.fillStyle = vg; c.fillRect(0, 0, W, H);
@@ -2094,6 +2189,14 @@ const Render = {
         c.globalCompositeOperation = 'lighter'; this.drawGlow(k.item.c, k.x, k.y + bob, 28, 0.8); c.globalCompositeOperation = 'source-over';
         c.fillStyle = '#120c22'; c.beginPath(); c.arc(k.x, k.y + 14, 11, 0, TAU); c.fill();
         itemIcon(c, k.item, k.x, k.y + bob - 4, 13);
+      } else if (k.kind === 'potion') {
+        const P = potionById(k.id);
+        c.globalCompositeOperation = 'lighter'; this.drawGlow(P.c, k.x, k.y + bob, 22, 0.7); c.globalCompositeOperation = 'source-over';
+        potionIcon(c, P, k.x, k.y + bob, 12);
+      } else if (k.kind === 'relic') {
+        const Rl = relicById(k.id);
+        c.globalCompositeOperation = 'lighter'; this.drawGlow(Rl.c, k.x, k.y + bob, 32, 0.85); c.globalCompositeOperation = 'source-over';
+        relicIcon(c, Rl, k.x, k.y + bob, 14);
       } else if (k.kind === 'key') {
         c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffd27a', k.x, k.y + bob, 22, 0.8); c.globalCompositeOperation = 'source-over';
         c.strokeStyle = '#ffd27a'; c.lineWidth = 3; c.beginPath(); c.arc(k.x - 5, k.y + bob, 4.5, 0, TAU); c.moveTo(k.x - 0.5, k.y + bob); c.lineTo(k.x + 10, k.y + bob); c.moveTo(k.x + 6, k.y + bob); c.lineTo(k.x + 6, k.y + bob + 5); c.moveTo(k.x + 10, k.y + bob); c.lineTo(k.x + 10, k.y + bob + 4); c.stroke();
@@ -2395,6 +2498,11 @@ const Render = {
         c.strokeStyle = '#fafaa0'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(pr.x, pr.y);
         for (let i = 1; i <= 3; i++) c.lineTo(pr.x - Math.cos(a) * i * 10 + R.range(-5, 5), pr.y - Math.sin(a) * i * 10 + R.range(-5, 5));
         c.stroke(); this.drawGlow('#f2f25a', pr.x, pr.y, 18, 0.9);
+      } else if (pr.kind === 'bomb') {
+        c.globalCompositeOperation = 'source-over';
+        c.fillStyle = '#2a2a34'; c.beginPath(); c.arc(pr.x, pr.y, 7, 0, TAU); c.fill();
+        c.strokeStyle = '#8a6a3a'; c.lineWidth = 2; c.beginPath(); c.moveTo(pr.x + 4, pr.y - 5); c.lineTo(pr.x + 8, pr.y - 10); c.stroke();
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffd27a', pr.x + 8, pr.y - 10, 8, 0.6 + Math.sin(World.time * 40) * 0.4);
       } else if (pr.kind === 'skull') {
         this.drawGlow('#b6ff7a', pr.x, pr.y, 22, 0.9);
         c.globalCompositeOperation = 'source-over';
@@ -2437,6 +2545,24 @@ const Render = {
     c.font = 'bold 13px ui-rounded, system-ui, sans-serif'; c.textAlign = 'center';
     for (const tx of World.texts) { c.globalAlpha = clamp(tx.life, 0, 1); c.fillStyle = tx.c; c.fillText(tx.s, tx.x, tx.y); }
     c.globalAlpha = 1;
+  },
+  allies() {
+    const c = this.c, d = World.decoy, g = World.gnome, t = World.time;
+    if (d) {
+      c.globalAlpha = 0.6 + Math.sin(t * 10) * 0.2;
+      c.globalCompositeOperation = 'lighter'; this.drawGlow('#c8a0ff', d.x, d.y, 34, 0.6); c.globalCompositeOperation = 'source-over';
+      c.fillStyle = '#c8a0ff'; c.beginPath(); c.arc(d.x, d.y, 9, 0, TAU); c.fill();
+      c.strokeStyle = '#ffffff'; c.lineWidth = 1.5; c.beginPath(); c.arc(d.x, d.y, 14 + Math.sin(t * 6) * 2, 0, TAU); c.stroke();
+      c.globalAlpha = 1;
+    }
+    if (g) {
+      c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(g.x, g.y + 9, 10, 4, 0, 0, TAU); c.fill();
+      c.fillStyle = '#7a5226'; c.fillRect(g.x - 9, g.y + 2, 18, 8); // the box
+      c.fillStyle = '#e8d0b0'; c.beginPath(); c.arc(g.x, g.y - 2, 6, 0, TAU); c.fill();
+      c.fillStyle = '#f4f4f4'; c.beginPath(); c.moveTo(g.x - 6, g.y); c.quadraticCurveTo(g.x, g.y + 9, g.x + 6, g.y); c.fill();
+      c.fillStyle = '#e03a3a'; c.beginPath(); c.moveTo(g.x - 7, g.y - 5); c.lineTo(g.x, g.y - 20); c.lineTo(g.x + 7, g.y - 5); c.closePath(); c.fill();
+      c.save(); c.translate(g.x, g.y); c.rotate(g.aim); c.fillStyle = '#5a5a6a'; c.fillRect(4, -2.5, 15, 5); c.restore();
+    }
   },
   warns() {
     const c = this.c;
@@ -2594,6 +2720,37 @@ function itemIcon(c, it, x, y, s) {
   c.restore();
 }
 
+function potionIcon(c, P, x, y, s) {
+  c.save(); c.translate(x, y);
+  if (P.id === 'bomb') {
+    c.fillStyle = '#2a2a34'; c.beginPath(); c.arc(0, 2, s * 0.65, 0, TAU); c.fill();
+    c.strokeStyle = '#8a6a3a'; c.lineWidth = 2; c.beginPath(); c.moveTo(s * 0.3, -s * 0.3); c.lineTo(s * 0.6, -s * 0.8); c.stroke();
+    c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(s * 0.6, -s * 0.8, 2.2, 0, TAU); c.fill();
+  } else {
+    c.fillStyle = 'rgba(230,240,255,0.25)'; c.beginPath(); c.arc(0, s * 0.25, s * 0.62, 0, TAU); c.fill();
+    c.fillStyle = P.c; c.beginPath(); c.arc(0, s * 0.3, s * 0.5, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(230,240,255,0.5)'; c.fillRect(-s * 0.18, -s * 0.75, s * 0.36, s * 0.55);
+    c.fillStyle = '#8a6a3a'; c.fillRect(-s * 0.22, -s * 0.92, s * 0.44, s * 0.22);
+    c.fillStyle = 'rgba(255,255,255,0.6)'; c.beginPath(); c.arc(-s * 0.2, s * 0.15, s * 0.12, 0, TAU); c.fill();
+  }
+  c.restore();
+}
+function relicIcon(c, Rl, x, y, s) {
+  c.save(); c.translate(x, y);
+  c.fillStyle = '#1a1230'; c.strokeStyle = Rl.c; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(0, -s); c.lineTo(s, 0); c.lineTo(0, s); c.lineTo(-s, 0); c.closePath(); c.fill(); c.stroke();
+  c.strokeStyle = Rl.c; c.fillStyle = Rl.c; c.lineWidth = 1.8; const q = s * 0.45; c.beginPath();
+  switch (Rl.id) {
+    case 'hourglass': c.moveTo(-q, -q); c.lineTo(q, -q); c.lineTo(-q, q); c.lineTo(q, q); c.closePath(); c.stroke(); break;
+    case 'decoy': c.arc(0, -q * 0.4, q * 0.45, 0, TAU); c.moveTo(-q * 0.6, q); c.lineTo(0, 0); c.lineTo(q * 0.6, q); c.stroke(); break;
+    case 'gnome': c.moveTo(-q * 0.7, q * 0.2); c.lineTo(0, -q); c.lineTo(q * 0.7, q * 0.2); c.closePath(); c.fill(); c.fillRect(-q * 0.6, q * 0.35, q * 1.2, q * 0.5); break;
+    case 'regen': c.arc(0, 0, q * 0.7, 0, TAU); c.stroke(); c.beginPath(); c.moveTo(-q * 0.35, 0); c.lineTo(q * 0.35, 0); c.moveTo(0, -q * 0.35); c.lineTo(0, q * 0.35); c.stroke(); break;
+    case 'displace': c.moveTo(-q, q * 0.8); c.quadraticCurveTo(0, -q * 1.4, q, q * 0.8); c.stroke(); break;
+    default: c.moveTo(0, -q); c.lineTo(q * 0.6, 0); c.lineTo(0, q); c.lineTo(-q * 0.6, 0); c.closePath(); c.fill();
+  }
+  c.restore();
+}
+
 // ===== HUD =====
 const HUD = {
   u: 1,
@@ -2641,6 +2798,7 @@ const HUD = {
         if (w.type === 'spellbook') { const f = 1 - clamp((w.cdT || 0) / (w.cd / p.st.rate), 0, 1); bar(f, f >= 1 ? '#ffffff' : ELEM[w.elem].c); }
       }
     });
+    this.slots(c, W, H, p, pad, font);
     if (p.weapons.length > 1 && Input.last !== 'touch') { c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', bx + 218, by - 20); }
     this.minimap(c, W, pad, font);
     // boss bar
@@ -2658,6 +2816,8 @@ const HUD = {
     else if (k) {
       let title, line1, line2 = '', col;
       if (k.kind === 'chest') { title = 'Treasure Chest'; line1 = 'Open it'; col = '#ffd27a'; }
+      else if (k.kind === 'potion') { const P = potionById(k.id); title = P.n; line1 = P.d; col = P.c; line2 = p.potion ? `(replaces ${potionById(p.potion).n})` : 'One-shot. Press R to use.'; }
+      else if (k.kind === 'relic') { const Rl = relicById(k.id); title = Rl.n; line1 = Rl.d; col = Rl.c; line2 = (Rl.active ? `Active: F to use, recharges over ${Rl.cd} rooms` : 'Passive: works while held') + (p.relic ? `  (replaces ${relicById(p.relic).n})` : ''); }
       else if (k.kind === 'lockchest') { title = 'Locked Chest'; col = '#d9c4ff'; line1 = p.keys > 0 ? `Use a key (you have ${p.keys})` : 'Needs a key'; line2 = k.msg || 'Holds at least Uncommon loot'; }
       else if (k.kind === 'portal') {
         title = k.last ? 'The Way Out' : 'Portal'; col = '#7fd8ff';
@@ -2731,6 +2891,27 @@ const HUD = {
     c.textAlign = 'center'; c.fillStyle = '#ffb057'; c.font = font(12, 800);
     c.fillText(`${key} to ${cur ? 'swap' : 'take'}`, W / 2, y + h + 18);
   },
+  slots(c, W, H, p, pad, font) { // potion (R) and relic (F)
+    const tch = Input.last === 'touch', sz = 44, x0 = pad, y0 = tch ? pad + 140 : H - pad - 64 - 46 - sz - 22;
+    const box = (i, label, key, draw, sub) => {
+      if (tch) return; // touch shows these on its own buttons
+      const x = x0 + i * (sz + 8);
+      c.fillStyle = 'rgba(20,14,38,0.7)'; roundRect(c, x, y0, sz, sz, 8); c.fill(); c.strokeStyle = 'rgba(120,100,180,0.6)'; c.lineWidth = 1; c.stroke();
+      if (draw) draw(x + sz / 2, y0 + sz / 2);
+      c.textAlign = 'center'; c.fillStyle = 'rgba(233,228,255,0.55)'; c.font = font(10, 800);
+      if (!tch) c.fillText(key, x + sz - 7, y0 + 11);
+      if (sub) { c.fillStyle = '#ffb057'; c.font = font(10, 800); c.fillText(sub, x + sz / 2, y0 + sz + 11); }
+    };
+    const P = p.potion && potionById(p.potion), Rl = p.relic && relicById(p.relic);
+    box(0, 'Potion', 'R', P && ((x, y) => potionIcon(c, P, x, y, 13)));
+    box(1, 'Relic', 'F', Rl && ((x, y) => { c.globalAlpha = p.relicCd > 0 ? 0.4 : 1; relicIcon(c, Rl, x, y, 15); c.globalAlpha = 1; }), Rl && Rl.active && p.relicCd > 0 ? `${p.relicCd} room${p.relicCd > 1 ? 's' : ''}` : Rl && !Rl.active ? 'passive' : '');
+    for (let i = 0; i < p.buffs.length; i++) { // running potion timers
+      const b = p.buffs[i], B = potionById(b.id), x = x0 + (tch ? 0 : 2 * (sz + 8)) + i * 34;
+      c.fillStyle = 'rgba(20,14,38,0.7)'; c.beginPath(); c.arc(x + 14, y0 + sz / 2, 14, 0, TAU); c.fill();
+      c.strokeStyle = B.c; c.lineWidth = 3; c.beginPath(); c.arc(x + 14, y0 + sz / 2, 14, -Math.PI / 2, -Math.PI / 2 + TAU * b.t / b.max); c.stroke();
+      potionIcon(c, B, x + 14, y0 + sz / 2, 8);
+    }
+  },
   enemyBox(c, W, H, pad, font) { // name of the last thing you hit
     const lh = World.lastHit; if (!lh || lh.t <= 0) return;
     const e = lh.e, a = clamp(lh.t / 0.5, 0, 1), bw = 170, tch = Input.last === 'touch';
@@ -2778,6 +2959,14 @@ const HUD = {
     for (const b of Input.touchButtons()) {
       if (b.id === 'use' && !World.near) continue;
       if (b.id === 'swap' && p.weapons.length < 2) continue;
+      if (b.id === 'potion' && !p.potion) continue;
+      if (b.id === 'relic' && !(p.relic && relicById(p.relic).active)) continue;
+      if (b.id === 'potion' || b.id === 'relic') {
+        c.fillStyle = 'rgba(40,28,80,0.55)'; c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill(); c.strokeStyle = 'rgba(233,228,255,0.4)'; c.lineWidth = 1.5; c.stroke();
+        if (b.id === 'potion') potionIcon(c, potionById(p.potion), b.x, b.y, b.r * 0.6);
+        else { c.globalAlpha = p.relicCd > 0 ? 0.35 : 1; relicIcon(c, relicById(p.relic), b.x, b.y, b.r * 0.6); c.globalAlpha = 1; }
+        continue;
+      }
       const held = b.id === 'attack' && Input.atk !== null;
       c.fillStyle = b.id === 'use' ? 'rgba(255,176,87,0.35)' : b.id === 'attack' ? (held ? 'rgba(255,122,42,0.45)' : 'rgba(255,122,42,0.22)') : 'rgba(40,28,80,0.55)';
       c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill();
@@ -2821,6 +3010,9 @@ const Game = {
     Meta.data.stats.runs++; Meta.save();
     Music.setSeed(this.seedNum); Music.on = true;
     World.startLevel(1, 1);
+    const pl = World.players[0], carry = Meta.data.carry || {};
+    if (carry.potion) pl.potion = carry.potion; if (carry.relic) pl.relic = carry.relic;
+    Meta.data.carry = {}; Meta.save();
     if (sec) {
       const first = !Meta.data.secrets[this.seed];
       if (first) { Meta.data.secrets[this.seed] = sec.n; Meta.data.embers += 25; Meta.save(); }
@@ -2839,7 +3031,7 @@ const Game = {
     Meta.data.embers += this.runEmbers;
     Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, World.depth);
     if (won) Meta.data.stats.wins++;
-    Meta.save(); Music.on = false;
+    Shop.reroll(); Meta.save(); Music.on = false;
     Snd.play(won ? 'portal' : 'death');
     Menu.show(won ? 'win' : 'dead');
   },
@@ -2889,15 +3081,17 @@ const Menu = {
   show(name, arg) {
     const M = Meta.data, ctrl = matchMedia('(pointer:coarse)').matches
       ? 'Left thumb moves. Hold the big button to attack the nearest foe, or drag on the right side to aim by hand. Hold to draw a bow, let go to fire. After a roll, attack right away to lunge.'
-      : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
+      : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · R potion · F relic · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
     if (name === 'title') {
       Game.state = 'menu';
       this.html(`<h1>EMBERDEEP</h1><div class="sub">A tiny procedural dungeon. Every seed is a different descent.</div>
         <button class="btn" id="b-new">New Run</button>
         <button class="btn" id="b-seed">Enter a Seed</button>
-        <div class="row"><button class="btn" id="b-saved">Saved Seeds</button><button class="btn" id="b-sanct">Sanctum · <span class="ember">${M.embers}</span></button></div>
+        <div class="row"><button class="btn" id="b-sanct">Sanctum · <span class="ember">${M.embers}</span></button><button class="btn" id="b-shop">Shop</button></div>
+        <button class="btn small" id="b-saved">Saved Seeds</button>
         <button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button>
-        <div class="hint">${ctrl}</div>`);
+        <div class="hint">${ctrl}</div><div class="hint" style="margin-top:8px">Build ${BUILD}</div>`);
+      this.on('b-shop', () => this.show('shop'));
       this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
       this.on('b-saved', () => this.show('saved'));
@@ -2910,6 +3104,23 @@ const Menu = {
       const inp = document.getElementById('seedin'); setTimeout(() => inp.focus(), 50);
       inp.onkeydown = e => { if (e.key === 'Enter') this.show('class', inp.value || inp.placeholder); };
       this.on('b-go', () => this.show('class', inp.value || inp.placeholder));
+      this.on('b-back', () => this.show('title'));
+    } else if (name === 'shop') {
+      Shop.ensure();
+      const S = M.shop, carry = M.carry || (M.carry = {});
+      const card = (kind, id, i) => {
+        const D = kind === 'potion' ? potionById(id) : relicById(id), full = !!carry[kind];
+        return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b>${kind === 'relic' ? ` <small style="display:inline">· ${D.active ? 'active, ' + D.cd + '-room recharge' : 'passive'}</small>` : ''}<small>${D.d}</small></div><button class="btn" id="buy-${kind}-${i}" ${full || M.embers < D.cost ? 'disabled' : ''}>${D.cost} ◆</button></div>`;
+      };
+      const packed = ['potion', 'relic'].map(k => carry[k] ? (k === 'potion' ? potionById(carry[k]) : relicById(carry[k])).n : 'nothing').join(' + ');
+      this.html(`<h2>The Shop</h2><div class="sub">Pack one potion and one relic for your next run. Stock changes after every run.<br>You carry <span class="ember">${M.embers} embers</span> · Packed: <b>${packed}</b></div>
+        <div class="list">${S.potions.map((id, i) => card('potion', id, i)).join('') || '<div class="sub">Potions sold out</div>'}${S.relics.map((id, i) => card('relic', id, i)).join('') || '<div class="sub">Relics sold out</div>'}</div>
+        <button class="btn small" id="b-back">Back</button>`);
+      ['potion', 'relic'].forEach(kind => (kind === 'potion' ? S.potions : S.relics).forEach((id, i) => this.on(`buy-${kind}-${i}`, () => {
+        const D = kind === 'potion' ? potionById(id) : relicById(id);
+        if (carry[kind] || M.embers < D.cost) return;
+        M.embers -= D.cost; carry[kind] = id; (kind === 'potion' ? S.potions : S.relics).splice(i, 1); Meta.save(); Snd.play('item'); this.show('shop');
+      })));
       this.on('b-back', () => this.show('title'));
     } else if (name === 'class') {
       const seed = arg;
@@ -2986,10 +3197,44 @@ function statBlock(p) {
     [p.cls === 'mage' ? 'Blink cooldown' : 'Roll cooldown', (st.rollCd + (p.cls === 'mage' ? 0.5 : 0.34)).toFixed(2) + 's'], ['Mana', `${Math.round(p.maxMana)} · regen ${Math.round(p.manaRegen * 100)}%`],
     ['Extra projectiles', st.extraShots], ['Bounces', st.bounce],
     ['Damage taken', st.hurtMult > 1 ? 'x' + st.hurtMult : 'normal'], ['Keys', p.keys],
+    ['Potion', p.potion ? potionById(p.potion).n : '-'], ['Relic', p.relic ? relicById(p.relic).n : '-'],
   ];
   return rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
 }
 function fmtTime(s) { s = Math.floor(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+// ===== Shop stock (limited, reshuffled after each run) =====
+const Shop = {
+  ensure() { if (!Meta.data.shop) this.reroll(); },
+  reroll() {
+    const rng = RNG((Math.random() * 4294967296) >>> 0);
+    Meta.data.shop = { potions: rng.shuffle(POTIONS.map(x => x.id)).slice(0, 3), relics: rng.shuffle(RELICS.map(x => x.id)).slice(0, 2) };
+  },
+};
+
+// ===== New-version check: compare our build stamp with the one on the server =====
+const Updater = {
+  pending: false,
+  async check() {
+    if (location.protocol === 'file:' || this.pending) return;
+    try {
+      const txt = await (await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' })).text();
+      const m = txt.match(/const BUILD = (\d+)/);
+      if (m && +m[1] > BUILD) { this.pending = true; this.show(); }
+    } catch (e) { }
+  },
+  show() {
+    if (document.getElementById('upd')) return;
+    const b = document.createElement('button'); b.id = 'upd';
+    b.textContent = 'New version available. Tap to reload';
+    b.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:30;padding:10px 16px;border-radius:20px;border:1px solid #ffb057;background:#2d2150;color:#ffe2b0;font:700 14px ui-rounded,system-ui,sans-serif;box-shadow:0 0 16px rgba(255,150,60,.35)';
+    b.onclick = () => location.reload();
+    document.body.appendChild(b);
+  },
+};
+setTimeout(() => Updater.check(), 3000);
+setInterval(() => { if (Game.state !== 'play') Updater.check(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) Updater.check(); });
 
 // ===== Boot =====
 Meta.load();

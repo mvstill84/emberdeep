@@ -80,7 +80,7 @@ const Input = {
   mouse: { x: 0, y: 0, l: false, r: false, rPressed: false },
   last: 'kb', // 'kb' | 'touch' | 'pad'
   sticks: { L: null, R: null }, // touch sticks {id, ox, oy, x, y}
-  tbtn: { roll: false, swap: false, use: false }, // touch button presses this frame
+  tbtn: { roll: false, swap: false, use: false, potion: false, relic: false }, // touch button presses this frame
   atk: null, // pointer id holding the touch attack button
   padPrev: [],
   init(canvas) {
@@ -128,6 +128,8 @@ const Input = {
       { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.62 },
       { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.55 },
       { id: 'use', x: w - A * 3.05, y: h - A * 2.75, r: A * 0.6 },
+      { id: 'potion', x: w - A * 4.95, y: h - A * 0.9, r: A * 0.5 },
+      { id: 'relic', x: w - A * 4.75, y: h - A * 2.3, r: A * 0.5 },
       { id: 'pause', x: w - s * 0.06, y: s * 0.06 + 4, r: s * 0.042 },
     ];
   },
@@ -160,7 +162,7 @@ const Input = {
   pads() { return navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []; },
   // Read one player's controls. src: 'auto' follows the last-used device (solo); 'pad0'.. for co-op later.
   read(src, player) {
-    const out = { mx: 0, my: 0, aim: null, attack: false, roll: false, swap: false, use: false, device: 'kb' };
+    const out = { mx: 0, my: 0, aim: null, attack: false, roll: false, swap: false, use: false, potion: false, relic: false, device: 'kb' };
     let dev = src;
     if (src === 'auto') {
       const p = this.pads()[0];
@@ -178,14 +180,15 @@ const Input = {
       out.attack = this.mouse.l;
       out.roll = this.pressed.has(' ') || this.pressed.has('shift') || this.mouse.rPressed;
       out.swap = this.pressed.has('q') || this.pressed.has('tab');
-      out.use = this.pressed.has('e') || this.pressed.has('f');
+      out.use = this.pressed.has('e');
+      out.potion = this.pressed.has('r'); out.relic = this.pressed.has('f');
     } else if (dev === 'touch') {
       const max = Math.min(innerWidth, innerHeight) * 0.09;
       const L = this.stickVec(this.sticks.L, max), Rv = this.stickVec(this.sticks.R, max);
       out.mx = L.x; out.my = L.y;
       if (Rv.m > 0.15) { out.aim = Math.atan2(Rv.y, Rv.x); out.attack = true; out.assist = true; }
       else if (this.atk !== null) { out.attack = true; out.autoAim = true; }
-      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use;
+      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
     } else {
       const p = this.pads()[+dev.slice(3)] || null;
       if (p) {
@@ -197,8 +200,8 @@ const Input = {
         const prev = this.padPrev[p.index] || [];
         const tap = i => btn(i) && !prev[i];
         out.attack = btn(7) || btn(5) || (out.aim !== null && Math.hypot(ax, ay) > 0.6);
-        out.roll = tap(0) || tap(4) || tap(6);
-        out.swap = tap(3); out.use = tap(2);
+        out.roll = tap(0) || tap(6);
+        out.swap = tap(3); out.use = tap(2); out.potion = tap(1); out.relic = tap(4);
         if (tap(9)) Game.togglePause();
       }
     }
@@ -206,7 +209,7 @@ const Input = {
   },
   endFrame() {
     this.pressed.clear(); this.mouse.rPressed = false;
-    this.tbtn.roll = this.tbtn.swap = this.tbtn.use = false;
+    this.tbtn.roll = this.tbtn.swap = this.tbtn.use = this.tbtn.potion = this.tbtn.relic = false;
     for (const p of this.pads()) this.padPrev[p.index] = p.buttons.map(b => b.pressed);
   },
 };

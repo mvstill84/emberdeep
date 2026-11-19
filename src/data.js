@@ -210,6 +210,28 @@ const WORLD_COUNT = 3;
 const levelLabel = (w, l) => `${w}-${l}`;
 
 // ===== Sanctum unlocks (permanent). A full run (~250 embers) buys about one. =====
+// ===== Potions (one-shot, R) and relics (F) =====
+const POTIONS = [
+  { id: 'heal', n: 'Healing Potion', d: 'Restore 1 heart', c: '#ff5470', cost: 60, use(p) { World.heal(2); } },
+  { id: 'superheal', n: 'Superior Healing Potion', d: 'Restore every heart', c: '#ff2050', cost: 170, use(p) { World.heal(p.maxHp); } },
+  { id: 'haste', n: 'Haste Potion', d: '+40% attack speed for 15s', c: '#ffe066', cost: 80, dur: 15, buff(p) { p.st.rate *= 1.4; } },
+  { id: 'swift', n: 'Potion of Swiftness', d: '+30% move speed, rolls recharge faster, 15s', c: '#99ffff', cost: 70, dur: 15, buff(p) { p.st.speed *= 1.3; p.st.rollCd *= 0.6; } },
+  { id: 'seeking', n: 'Oil of Seeking', d: 'Shots home in on foes for 20s', c: '#d6a2ff', cost: 90, dur: 20, buff(p) { p.st.homing += 3; } },
+  { id: 'piercing', n: 'Oil of Piercing', d: 'Shots pierce 2 more foes for 20s', c: '#bfe3ff', cost: 90, dur: 20, buff(p) { p.st.pierceAdd += 2; } },
+  { id: 'fireoil', n: 'Fire Oil', d: 'Every hit sets foes ablaze for 20s', c: '#ff7a2a', cost: 80, dur: 20, buff(p) { p.st.addElem.add('fire'); } },
+  { id: 'storm', n: 'Storm Draught', d: 'Lightning arcs from you to nearby foes for 12s', c: '#f2f25a', cost: 110, dur: 12, buff(p) { p.st.aura = true; } },
+  { id: 'bomb', n: 'Bomb', d: 'Throw it where you aim. Big blast, breaks rocks', c: '#ff9a3c', cost: 50, use(p) { World.throwBomb(p); } },
+];
+const RELICS = [
+  { id: 'hourglass', n: 'Timeless Hourglass', d: 'Freeze every foe and shot for 4s', c: '#ffd27a', active: true, cd: 3, cost: 550, use(p) { World.timeStop(4); } },
+  { id: 'decoy', n: 'Decoy Totem', d: 'Foes chase a decoy instead of you for 7s', c: '#c8a0ff', active: true, cd: 2, cost: 450, use(p) { World.spawnDecoy(p); } },
+  { id: 'gnome', n: 'Gnome-in-a-Box', d: 'Deploys a gnome with a hand cannon for 12s', c: '#7dff7a', active: true, cd: 2, cost: 500, use(p) { World.spawnGnome(p); } },
+  { id: 'regen', n: 'Ring of Regeneration', d: 'Heal half a heart every 3 rooms cleared', c: '#ff7aa8', active: false, cost: 500 },
+  { id: 'displace', n: 'Cloak of Displacement', d: 'The first hit in each fight misses you', c: '#7fd8ff', active: false, cost: 600 },
+  { id: 'amulet', n: 'Ember Amulet', d: '+25% embers', c: '#ffb057', active: false, cost: 400 },
+];
+const potionById = id => POTIONS.find(x => x.id === id), relicById = id => RELICS.find(x => x.id === id);
+
 // ===== Classes =====
 const CLASSES = {
   fighter: {

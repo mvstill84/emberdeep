@@ -57,10 +57,12 @@ const Render = {
     for (const s of World.parts) if (!s.glow && !s.ring) { c.globalAlpha = clamp(s.life / s.max, 0, 1) * 0.5; c.fillStyle = s.color; c.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size); }
     c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
     for (const e of World.enemies) this.enemy(e);
+    this.allies();
     for (const p of World.players) if (!p.dead) this.player(p);
     this.fx();
     c.setTransform(1, 0, 0, 1, 0, 0);
     if (Game.mods.dark) this.darkness();
+    if (World.timeStopT > 0) { c.fillStyle = `rgba(120,160,255,${Math.min(0.18, World.timeStopT * 0.1)})`; c.fillRect(0, 0, W, H); }
     const vg = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
     c.fillStyle = vg; c.fillRect(0, 0, W, H);
@@ -214,6 +216,14 @@ const Render = {
         c.globalCompositeOperation = 'lighter'; this.drawGlow(k.item.c, k.x, k.y + bob, 28, 0.8); c.globalCompositeOperation = 'source-over';
         c.fillStyle = '#120c22'; c.beginPath(); c.arc(k.x, k.y + 14, 11, 0, TAU); c.fill();
         itemIcon(c, k.item, k.x, k.y + bob - 4, 13);
+      } else if (k.kind === 'potion') {
+        const P = potionById(k.id);
+        c.globalCompositeOperation = 'lighter'; this.drawGlow(P.c, k.x, k.y + bob, 22, 0.7); c.globalCompositeOperation = 'source-over';
+        potionIcon(c, P, k.x, k.y + bob, 12);
+      } else if (k.kind === 'relic') {
+        const Rl = relicById(k.id);
+        c.globalCompositeOperation = 'lighter'; this.drawGlow(Rl.c, k.x, k.y + bob, 32, 0.85); c.globalCompositeOperation = 'source-over';
+        relicIcon(c, Rl, k.x, k.y + bob, 14);
       } else if (k.kind === 'key') {
         c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffd27a', k.x, k.y + bob, 22, 0.8); c.globalCompositeOperation = 'source-over';
         c.strokeStyle = '#ffd27a'; c.lineWidth = 3; c.beginPath(); c.arc(k.x - 5, k.y + bob, 4.5, 0, TAU); c.moveTo(k.x - 0.5, k.y + bob); c.lineTo(k.x + 10, k.y + bob); c.moveTo(k.x + 6, k.y + bob); c.lineTo(k.x + 6, k.y + bob + 5); c.moveTo(k.x + 10, k.y + bob); c.lineTo(k.x + 10, k.y + bob + 4); c.stroke();
@@ -515,6 +525,11 @@ const Render = {
         c.strokeStyle = '#fafaa0'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(pr.x, pr.y);
         for (let i = 1; i <= 3; i++) c.lineTo(pr.x - Math.cos(a) * i * 10 + R.range(-5, 5), pr.y - Math.sin(a) * i * 10 + R.range(-5, 5));
         c.stroke(); this.drawGlow('#f2f25a', pr.x, pr.y, 18, 0.9);
+      } else if (pr.kind === 'bomb') {
+        c.globalCompositeOperation = 'source-over';
+        c.fillStyle = '#2a2a34'; c.beginPath(); c.arc(pr.x, pr.y, 7, 0, TAU); c.fill();
+        c.strokeStyle = '#8a6a3a'; c.lineWidth = 2; c.beginPath(); c.moveTo(pr.x + 4, pr.y - 5); c.lineTo(pr.x + 8, pr.y - 10); c.stroke();
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffd27a', pr.x + 8, pr.y - 10, 8, 0.6 + Math.sin(World.time * 40) * 0.4);
       } else if (pr.kind === 'skull') {
         this.drawGlow('#b6ff7a', pr.x, pr.y, 22, 0.9);
         c.globalCompositeOperation = 'source-over';
@@ -557,6 +572,24 @@ const Render = {
     c.font = 'bold 13px ui-rounded, system-ui, sans-serif'; c.textAlign = 'center';
     for (const tx of World.texts) { c.globalAlpha = clamp(tx.life, 0, 1); c.fillStyle = tx.c; c.fillText(tx.s, tx.x, tx.y); }
     c.globalAlpha = 1;
+  },
+  allies() {
+    const c = this.c, d = World.decoy, g = World.gnome, t = World.time;
+    if (d) {
+      c.globalAlpha = 0.6 + Math.sin(t * 10) * 0.2;
+      c.globalCompositeOperation = 'lighter'; this.drawGlow('#c8a0ff', d.x, d.y, 34, 0.6); c.globalCompositeOperation = 'source-over';
+      c.fillStyle = '#c8a0ff'; c.beginPath(); c.arc(d.x, d.y, 9, 0, TAU); c.fill();
+      c.strokeStyle = '#ffffff'; c.lineWidth = 1.5; c.beginPath(); c.arc(d.x, d.y, 14 + Math.sin(t * 6) * 2, 0, TAU); c.stroke();
+      c.globalAlpha = 1;
+    }
+    if (g) {
+      c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(g.x, g.y + 9, 10, 4, 0, 0, TAU); c.fill();
+      c.fillStyle = '#7a5226'; c.fillRect(g.x - 9, g.y + 2, 18, 8); // the box
+      c.fillStyle = '#e8d0b0'; c.beginPath(); c.arc(g.x, g.y - 2, 6, 0, TAU); c.fill();
+      c.fillStyle = '#f4f4f4'; c.beginPath(); c.moveTo(g.x - 6, g.y); c.quadraticCurveTo(g.x, g.y + 9, g.x + 6, g.y); c.fill();
+      c.fillStyle = '#e03a3a'; c.beginPath(); c.moveTo(g.x - 7, g.y - 5); c.lineTo(g.x, g.y - 20); c.lineTo(g.x + 7, g.y - 5); c.closePath(); c.fill();
+      c.save(); c.translate(g.x, g.y); c.rotate(g.aim); c.fillStyle = '#5a5a6a'; c.fillRect(4, -2.5, 15, 5); c.restore();
+    }
   },
   warns() {
     const c = this.c;
@@ -710,6 +743,37 @@ function itemIcon(c, it, x, y, s) {
     case 'sword': c.moveTo(-q * 0.8, q * 0.8); c.lineTo(q * 0.8, -q * 0.8); c.moveTo(-q * 0.6, q * 0.1); c.lineTo(-q * 0.1, q * 0.6); c.stroke(); break;
     case 'feather': c.moveTo(-q * 0.8, q * 0.8); c.quadraticCurveTo(-q * 0.4, -q, q * 0.8, -q * 0.8); c.quadraticCurveTo(q * 0.4, q * 0.3, -q * 0.8, q * 0.8); c.stroke(); break;
     default: c.arc(0, 0, q * 0.5, 0, TAU); c.fill();
+  }
+  c.restore();
+}
+
+function potionIcon(c, P, x, y, s) {
+  c.save(); c.translate(x, y);
+  if (P.id === 'bomb') {
+    c.fillStyle = '#2a2a34'; c.beginPath(); c.arc(0, 2, s * 0.65, 0, TAU); c.fill();
+    c.strokeStyle = '#8a6a3a'; c.lineWidth = 2; c.beginPath(); c.moveTo(s * 0.3, -s * 0.3); c.lineTo(s * 0.6, -s * 0.8); c.stroke();
+    c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(s * 0.6, -s * 0.8, 2.2, 0, TAU); c.fill();
+  } else {
+    c.fillStyle = 'rgba(230,240,255,0.25)'; c.beginPath(); c.arc(0, s * 0.25, s * 0.62, 0, TAU); c.fill();
+    c.fillStyle = P.c; c.beginPath(); c.arc(0, s * 0.3, s * 0.5, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(230,240,255,0.5)'; c.fillRect(-s * 0.18, -s * 0.75, s * 0.36, s * 0.55);
+    c.fillStyle = '#8a6a3a'; c.fillRect(-s * 0.22, -s * 0.92, s * 0.44, s * 0.22);
+    c.fillStyle = 'rgba(255,255,255,0.6)'; c.beginPath(); c.arc(-s * 0.2, s * 0.15, s * 0.12, 0, TAU); c.fill();
+  }
+  c.restore();
+}
+function relicIcon(c, Rl, x, y, s) {
+  c.save(); c.translate(x, y);
+  c.fillStyle = '#1a1230'; c.strokeStyle = Rl.c; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(0, -s); c.lineTo(s, 0); c.lineTo(0, s); c.lineTo(-s, 0); c.closePath(); c.fill(); c.stroke();
+  c.strokeStyle = Rl.c; c.fillStyle = Rl.c; c.lineWidth = 1.8; const q = s * 0.45; c.beginPath();
+  switch (Rl.id) {
+    case 'hourglass': c.moveTo(-q, -q); c.lineTo(q, -q); c.lineTo(-q, q); c.lineTo(q, q); c.closePath(); c.stroke(); break;
+    case 'decoy': c.arc(0, -q * 0.4, q * 0.45, 0, TAU); c.moveTo(-q * 0.6, q); c.lineTo(0, 0); c.lineTo(q * 0.6, q); c.stroke(); break;
+    case 'gnome': c.moveTo(-q * 0.7, q * 0.2); c.lineTo(0, -q); c.lineTo(q * 0.7, q * 0.2); c.closePath(); c.fill(); c.fillRect(-q * 0.6, q * 0.35, q * 1.2, q * 0.5); break;
+    case 'regen': c.arc(0, 0, q * 0.7, 0, TAU); c.stroke(); c.beginPath(); c.moveTo(-q * 0.35, 0); c.lineTo(q * 0.35, 0); c.moveTo(0, -q * 0.35); c.lineTo(0, q * 0.35); c.stroke(); break;
+    case 'displace': c.moveTo(-q, q * 0.8); c.quadraticCurveTo(0, -q * 1.4, q, q * 0.8); c.stroke(); break;
+    default: c.moveTo(0, -q); c.lineTo(q * 0.6, 0); c.lineTo(0, q); c.lineTo(-q * 0.6, 0); c.closePath(); c.fill();
   }
   c.restore();
 }

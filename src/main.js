@@ -45,6 +45,7 @@ const HUD = {
         if (w.type === 'spellbook') { const f = 1 - clamp((w.cdT || 0) / (w.cd / p.st.rate), 0, 1); bar(f, f >= 1 ? '#ffffff' : ELEM[w.elem].c); }
       }
     });
+    this.slots(c, W, H, p, pad, font);
     if (p.weapons.length > 1 && Input.last !== 'touch') { c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', bx + 218, by - 20); }
     this.minimap(c, W, pad, font);
     // boss bar
@@ -62,6 +63,8 @@ const HUD = {
     else if (k) {
       let title, line1, line2 = '', col;
       if (k.kind === 'chest') { title = 'Treasure Chest'; line1 = 'Open it'; col = '#ffd27a'; }
+      else if (k.kind === 'potion') { const P = potionById(k.id); title = P.n; line1 = P.d; col = P.c; line2 = p.potion ? `(replaces ${potionById(p.potion).n})` : 'One-shot. Press R to use.'; }
+      else if (k.kind === 'relic') { const Rl = relicById(k.id); title = Rl.n; line1 = Rl.d; col = Rl.c; line2 = (Rl.active ? `Active: F to use, recharges over ${Rl.cd} rooms` : 'Passive: works while held') + (p.relic ? `  (replaces ${relicById(p.relic).n})` : ''); }
       else if (k.kind === 'lockchest') { title = 'Locked Chest'; col = '#d9c4ff'; line1 = p.keys > 0 ? `Use a key (you have ${p.keys})` : 'Needs a key'; line2 = k.msg || 'Holds at least Uncommon loot'; }
       else if (k.kind === 'portal') {
         title = k.last ? 'The Way Out' : 'Portal'; col = '#7fd8ff';
@@ -135,6 +138,27 @@ const HUD = {
     c.textAlign = 'center'; c.fillStyle = '#ffb057'; c.font = font(12, 800);
     c.fillText(`${key} to ${cur ? 'swap' : 'take'}`, W / 2, y + h + 18);
   },
+  slots(c, W, H, p, pad, font) { // potion (R) and relic (F)
+    const tch = Input.last === 'touch', sz = 44, x0 = pad, y0 = tch ? pad + 140 : H - pad - 64 - 46 - sz - 22;
+    const box = (i, label, key, draw, sub) => {
+      if (tch) return; // touch shows these on its own buttons
+      const x = x0 + i * (sz + 8);
+      c.fillStyle = 'rgba(20,14,38,0.7)'; roundRect(c, x, y0, sz, sz, 8); c.fill(); c.strokeStyle = 'rgba(120,100,180,0.6)'; c.lineWidth = 1; c.stroke();
+      if (draw) draw(x + sz / 2, y0 + sz / 2);
+      c.textAlign = 'center'; c.fillStyle = 'rgba(233,228,255,0.55)'; c.font = font(10, 800);
+      if (!tch) c.fillText(key, x + sz - 7, y0 + 11);
+      if (sub) { c.fillStyle = '#ffb057'; c.font = font(10, 800); c.fillText(sub, x + sz / 2, y0 + sz + 11); }
+    };
+    const P = p.potion && potionById(p.potion), Rl = p.relic && relicById(p.relic);
+    box(0, 'Potion', 'R', P && ((x, y) => potionIcon(c, P, x, y, 13)));
+    box(1, 'Relic', 'F', Rl && ((x, y) => { c.globalAlpha = p.relicCd > 0 ? 0.4 : 1; relicIcon(c, Rl, x, y, 15); c.globalAlpha = 1; }), Rl && Rl.active && p.relicCd > 0 ? `${p.relicCd} room${p.relicCd > 1 ? 's' : ''}` : Rl && !Rl.active ? 'passive' : '');
+    for (let i = 0; i < p.buffs.length; i++) { // running potion timers
+      const b = p.buffs[i], B = potionById(b.id), x = x0 + (tch ? 0 : 2 * (sz + 8)) + i * 34;
+      c.fillStyle = 'rgba(20,14,38,0.7)'; c.beginPath(); c.arc(x + 14, y0 + sz / 2, 14, 0, TAU); c.fill();
+      c.strokeStyle = B.c; c.lineWidth = 3; c.beginPath(); c.arc(x + 14, y0 + sz / 2, 14, -Math.PI / 2, -Math.PI / 2 + TAU * b.t / b.max); c.stroke();
+      potionIcon(c, B, x + 14, y0 + sz / 2, 8);
+    }
+  },
   enemyBox(c, W, H, pad, font) { // name of the last thing you hit
     const lh = World.lastHit; if (!lh || lh.t <= 0) return;
     const e = lh.e, a = clamp(lh.t / 0.5, 0, 1), bw = 170, tch = Input.last === 'touch';
@@ -182,6 +206,14 @@ const HUD = {
     for (const b of Input.touchButtons()) {
       if (b.id === 'use' && !World.near) continue;
       if (b.id === 'swap' && p.weapons.length < 2) continue;
+      if (b.id === 'potion' && !p.potion) continue;
+      if (b.id === 'relic' && !(p.relic && relicById(p.relic).active)) continue;
+      if (b.id === 'potion' || b.id === 'relic') {
+        c.fillStyle = 'rgba(40,28,80,0.55)'; c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill(); c.strokeStyle = 'rgba(233,228,255,0.4)'; c.lineWidth = 1.5; c.stroke();
+        if (b.id === 'potion') potionIcon(c, potionById(p.potion), b.x, b.y, b.r * 0.6);
+        else { c.globalAlpha = p.relicCd > 0 ? 0.35 : 1; relicIcon(c, relicById(p.relic), b.x, b.y, b.r * 0.6); c.globalAlpha = 1; }
+        continue;
+      }
       const held = b.id === 'attack' && Input.atk !== null;
       c.fillStyle = b.id === 'use' ? 'rgba(255,176,87,0.35)' : b.id === 'attack' ? (held ? 'rgba(255,122,42,0.45)' : 'rgba(255,122,42,0.22)') : 'rgba(40,28,80,0.55)';
       c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill();
@@ -225,6 +257,9 @@ const Game = {
     Meta.data.stats.runs++; Meta.save();
     Music.setSeed(this.seedNum); Music.on = true;
     World.startLevel(1, 1);
+    const pl = World.players[0], carry = Meta.data.carry || {};
+    if (carry.potion) pl.potion = carry.potion; if (carry.relic) pl.relic = carry.relic;
+    Meta.data.carry = {}; Meta.save();
     if (sec) {
       const first = !Meta.data.secrets[this.seed];
       if (first) { Meta.data.secrets[this.seed] = sec.n; Meta.data.embers += 25; Meta.save(); }
@@ -243,7 +278,7 @@ const Game = {
     Meta.data.embers += this.runEmbers;
     Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, World.depth);
     if (won) Meta.data.stats.wins++;
-    Meta.save(); Music.on = false;
+    Shop.reroll(); Meta.save(); Music.on = false;
     Snd.play(won ? 'portal' : 'death');
     Menu.show(won ? 'win' : 'dead');
   },
@@ -293,15 +328,17 @@ const Menu = {
   show(name, arg) {
     const M = Meta.data, ctrl = matchMedia('(pointer:coarse)').matches
       ? 'Left thumb moves. Hold the big button to attack the nearest foe, or drag on the right side to aim by hand. Hold to draw a bow, let go to fire. After a roll, attack right away to lunge.'
-      : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
+      : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · R potion · F relic · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
     if (name === 'title') {
       Game.state = 'menu';
       this.html(`<h1>EMBERDEEP</h1><div class="sub">A tiny procedural dungeon. Every seed is a different descent.</div>
         <button class="btn" id="b-new">New Run</button>
         <button class="btn" id="b-seed">Enter a Seed</button>
-        <div class="row"><button class="btn" id="b-saved">Saved Seeds</button><button class="btn" id="b-sanct">Sanctum · <span class="ember">${M.embers}</span></button></div>
+        <div class="row"><button class="btn" id="b-sanct">Sanctum · <span class="ember">${M.embers}</span></button><button class="btn" id="b-shop">Shop</button></div>
+        <button class="btn small" id="b-saved">Saved Seeds</button>
         <button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button>
-        <div class="hint">${ctrl}</div>`);
+        <div class="hint">${ctrl}</div><div class="hint" style="margin-top:8px">Build ${BUILD}</div>`);
+      this.on('b-shop', () => this.show('shop'));
       this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
       this.on('b-saved', () => this.show('saved'));
@@ -314,6 +351,23 @@ const Menu = {
       const inp = document.getElementById('seedin'); setTimeout(() => inp.focus(), 50);
       inp.onkeydown = e => { if (e.key === 'Enter') this.show('class', inp.value || inp.placeholder); };
       this.on('b-go', () => this.show('class', inp.value || inp.placeholder));
+      this.on('b-back', () => this.show('title'));
+    } else if (name === 'shop') {
+      Shop.ensure();
+      const S = M.shop, carry = M.carry || (M.carry = {});
+      const card = (kind, id, i) => {
+        const D = kind === 'potion' ? potionById(id) : relicById(id), full = !!carry[kind];
+        return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b>${kind === 'relic' ? ` <small style="display:inline">· ${D.active ? 'active, ' + D.cd + '-room recharge' : 'passive'}</small>` : ''}<small>${D.d}</small></div><button class="btn" id="buy-${kind}-${i}" ${full || M.embers < D.cost ? 'disabled' : ''}>${D.cost} ◆</button></div>`;
+      };
+      const packed = ['potion', 'relic'].map(k => carry[k] ? (k === 'potion' ? potionById(carry[k]) : relicById(carry[k])).n : 'nothing').join(' + ');
+      this.html(`<h2>The Shop</h2><div class="sub">Pack one potion and one relic for your next run. Stock changes after every run.<br>You carry <span class="ember">${M.embers} embers</span> · Packed: <b>${packed}</b></div>
+        <div class="list">${S.potions.map((id, i) => card('potion', id, i)).join('') || '<div class="sub">Potions sold out</div>'}${S.relics.map((id, i) => card('relic', id, i)).join('') || '<div class="sub">Relics sold out</div>'}</div>
+        <button class="btn small" id="b-back">Back</button>`);
+      ['potion', 'relic'].forEach(kind => (kind === 'potion' ? S.potions : S.relics).forEach((id, i) => this.on(`buy-${kind}-${i}`, () => {
+        const D = kind === 'potion' ? potionById(id) : relicById(id);
+        if (carry[kind] || M.embers < D.cost) return;
+        M.embers -= D.cost; carry[kind] = id; (kind === 'potion' ? S.potions : S.relics).splice(i, 1); Meta.save(); Snd.play('item'); this.show('shop');
+      })));
       this.on('b-back', () => this.show('title'));
     } else if (name === 'class') {
       const seed = arg;
@@ -390,10 +444,44 @@ function statBlock(p) {
     [p.cls === 'mage' ? 'Blink cooldown' : 'Roll cooldown', (st.rollCd + (p.cls === 'mage' ? 0.5 : 0.34)).toFixed(2) + 's'], ['Mana', `${Math.round(p.maxMana)} · regen ${Math.round(p.manaRegen * 100)}%`],
     ['Extra projectiles', st.extraShots], ['Bounces', st.bounce],
     ['Damage taken', st.hurtMult > 1 ? 'x' + st.hurtMult : 'normal'], ['Keys', p.keys],
+    ['Potion', p.potion ? potionById(p.potion).n : '-'], ['Relic', p.relic ? relicById(p.relic).n : '-'],
   ];
   return rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
 }
 function fmtTime(s) { s = Math.floor(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+// ===== Shop stock (limited, reshuffled after each run) =====
+const Shop = {
+  ensure() { if (!Meta.data.shop) this.reroll(); },
+  reroll() {
+    const rng = RNG((Math.random() * 4294967296) >>> 0);
+    Meta.data.shop = { potions: rng.shuffle(POTIONS.map(x => x.id)).slice(0, 3), relics: rng.shuffle(RELICS.map(x => x.id)).slice(0, 2) };
+  },
+};
+
+// ===== New-version check: compare our build stamp with the one on the server =====
+const Updater = {
+  pending: false,
+  async check() {
+    if (location.protocol === 'file:' || this.pending) return;
+    try {
+      const txt = await (await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' })).text();
+      const m = txt.match(/const BUILD = (\d+)/);
+      if (m && +m[1] > BUILD) { this.pending = true; this.show(); }
+    } catch (e) { }
+  },
+  show() {
+    if (document.getElementById('upd')) return;
+    const b = document.createElement('button'); b.id = 'upd';
+    b.textContent = 'New version available. Tap to reload';
+    b.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:30;padding:10px 16px;border-radius:20px;border:1px solid #ffb057;background:#2d2150;color:#ffe2b0;font:700 14px ui-rounded,system-ui,sans-serif;box-shadow:0 0 16px rgba(255,150,60,.35)';
+    b.onclick = () => location.reload();
+    document.body.appendChild(b);
+  },
+};
+setTimeout(() => Updater.check(), 3000);
+setInterval(() => { if (Game.state !== 'play') Updater.check(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) Updater.check(); });
 
 // ===== Boot =====
 Meta.load();
