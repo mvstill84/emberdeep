@@ -22,6 +22,7 @@ const HUD = {
     // embers
     c.fillStyle = '#ffb057'; c.beginPath(); c.moveTo(pad + 10, pad + 30); c.lineTo(pad + 16, pad + 38); c.lineTo(pad + 10, pad + 46); c.lineTo(pad + 4, pad + 38); c.fill();
     c.font = font(16, 800); c.textAlign = 'left'; c.fillText(Game.runEmbers, pad + 23, pad + 44);
+    if (p.keys > 0) { const kx = pad + 70; c.strokeStyle = '#ffd27a'; c.lineWidth = 2.5; c.beginPath(); c.arc(kx, pad + 38, 4, 0, TAU); c.moveTo(kx + 4, pad + 38); c.lineTo(kx + 14, pad + 38); c.moveTo(kx + 11, pad + 38); c.lineTo(kx + 11, pad + 43); c.stroke(); c.fillStyle = '#ffd27a'; c.fillText(p.keys, kx + 19, pad + 44); }
     // items
     p.items.forEach((id, i) => { const it = ITEMS.find(x => x.id === id); itemIcon(c, it, pad + 11 + (i % 10) * 24, pad + 66 + Math.floor(i / 10) * 24, 10); });
     // weapons
@@ -33,13 +34,14 @@ const HUD = {
       c.strokeStyle = active ? RARITY[w.rarity].c : 'rgba(120,100,180,0.5)'; c.lineWidth = active ? 2 : 1; c.stroke();
       weaponIcon(c, w, bx + 26, y + h / 2, active ? 30 : 22);
       c.textAlign = 'left'; c.fillStyle = RARITY[w.rarity].c; c.font = font(active ? 15 : 13, 800);
-      c.fillText(fitText(c, w.name, ww - 60), bx + 50, y + (active ? 26 : 25));
+      const stolen = p.stolen && p.stolen.idx === i;
+      c.fillText(stolen ? 'Engulfed! ' + Math.ceil(p.stolen.t) + 's' : fitText(c, w.name, ww - 60), bx + 50, y + (active ? 26 : 25));
       if (active) {
         c.fillStyle = 'rgba(233,228,255,0.65)'; c.font = font(12, 600);
         c.fillText(weaponLine(w), bx + 50, y + 45);
         const bar = (f, col) => { c.fillStyle = 'rgba(255,255,255,0.15)'; c.fillRect(bx + 50, y + 51, ww - 64, 5); c.fillStyle = col; c.fillRect(bx + 50, y + 51, (ww - 64) * clamp(f, 0, 1), 5); };
         if (w.type === 'bow' && p.charge > 0) bar(p.charge, p.charge >= 1 ? '#fff' : ELEM[w.elem].c);
-        if (w.type === 'wand' || w.type === 'staff') bar(p.mana / p.maxMana, p.manaFlash > 0 ? '#ff4d6d' : '#4fa3ff');
+        if (w.type === 'wand' || w.type === 'staff') bar(p.mana / p.maxMana, p.exhausted || p.manaFlash > 0 ? '#ff4d6d' : '#4fa3ff');
         if (w.type === 'spellbook') { const f = 1 - clamp((w.cdT || 0) / (w.cd / p.st.rate), 0, 1); bar(f, f >= 1 ? '#ffffff' : ELEM[w.elem].c); }
       }
     });
@@ -60,6 +62,7 @@ const HUD = {
     else if (k) {
       let title, line1, line2 = '', col;
       if (k.kind === 'chest') { title = 'Treasure Chest'; line1 = 'Open it'; col = '#ffd27a'; }
+      else if (k.kind === 'lockchest') { title = 'Locked Chest'; col = '#d9c4ff'; line1 = p.keys > 0 ? `Use a key (you have ${p.keys})` : 'Needs a key'; line2 = k.msg || 'Holds at least Uncommon loot'; }
       else if (k.kind === 'portal') {
         title = k.last ? 'The Way Out' : 'Portal'; col = '#7fd8ff';
         line1 = k.last ? 'Climb out of the deep' : 'Descend to the next level';
@@ -157,6 +160,8 @@ const HUD = {
       c.fillStyle = r === World.room ? '#ffe2b0' : r.visited ? hexA(tint, 0.6) : 'rgba(80,70,120,0.6)';
       c.fillRect(x, y, s, s);
       if (r.type === 'boss') { c.fillStyle = '#ff3a5a'; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3, 0, TAU); c.fill(); }
+      if (r.visited && World.pickups.some(k => k.kind === 'lockchest' && k.room === r)) { c.fillStyle = '#d9c4ff'; c.fillRect(x + s - 4, y, 4, 4); }
+      if (r.visited && World.pickups.some(k => k.kind === 'key' && k.room === r)) { c.fillStyle = '#ffd27a'; c.fillRect(x, y, 4, 4); }
       if (r.type === 'exit') { c.strokeStyle = '#7fd8ff'; c.lineWidth = 1.5; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3.5, 0, TAU); c.stroke(); }
       if (r.type === 'armory') { c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3, 0, TAU); c.fill(); }
     }
@@ -216,7 +221,7 @@ const Game = {
     this.seedNum = strHash(this.seed);
     const sec = SECRETS[this.seedNum];
     this.secret = sec || null; this.mods = sec ? { ...sec.mods } : {};
-    this.runEmbers = 0; this.runTime = 0; this.deadT = 0; this.hs = 0;
+    this.runEmbers = 0; this.runTime = 0; this.deadT = 0; this.hs = 0; this.keysSpawned = 0; this.chestsSpawned = 0;
     Meta.data.stats.runs++; Meta.save();
     Music.setSeed(this.seedNum); Music.on = true;
     World.startLevel(1, 1);
@@ -347,6 +352,7 @@ const Menu = {
       const items = p.items.map(id => ITEMS.find(x => x.id === id)).map((it, i) => `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}</b><small>${it.d}</small></div><button class="btn" id="drop-${i}">Drop</button></div>`).join('');
       const syn = p.syn.map(id => SYNERGIES.find(s => s.id === id)).map(s => `<div class="card"><div class="grow"><b class="secret">✦ ${s.n}</b><small>${s.d}</small></div></div>`).join('');
       this.html(`<h2>Paused</h2><div class="sub"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
+        <div class="stats" style="grid-template-columns:auto auto auto auto;max-width:540px;font-size:14px">${statBlock(p)}</div>
         <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>
         <button class="btn" id="b-res">Resume</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button></div>
@@ -373,6 +379,20 @@ const Menu = {
     }
   },
 };
+function statBlock(p) {
+  const st = p.st, pct = v => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%', C = CLASSES[p.cls];
+  const rows = [
+    ['Class', C.n], ['Hearts', `${p.hp / 2} / ${p.maxHp / 2}`],
+    ['Move speed', pct(st.speed / 155 - 1)], ['Attack speed', pct(st.rate - 1)],
+    ['Damage', pct(st.dmg - 1)], ['Melee damage', pct(st.meleeDmg - 1)],
+    ['Ranged damage', pct(st.rangedDmg - 1)], ['Bow draw time', pct(st.draw - 1)],
+    ['Crit chance', Math.round(((p.weapons[p.wi].crit || 0) + st.crit) * 100) + '%'], ['Crit damage', Math.round(st.critMult * 100) + '%'],
+    [p.cls === 'mage' ? 'Blink cooldown' : 'Roll cooldown', (st.rollCd + (p.cls === 'mage' ? 0.5 : 0.34)).toFixed(2) + 's'], ['Mana', `${Math.round(p.maxMana)} · regen ${Math.round(p.manaRegen * 100)}%`],
+    ['Extra projectiles', st.extraShots], ['Bounces', st.bounce],
+    ['Damage taken', st.hurtMult > 1 ? 'x' + st.hurtMult : 'normal'], ['Keys', p.keys],
+  ];
+  return rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
+}
 function fmtTime(s) { s = Math.floor(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 
 // ===== Boot =====

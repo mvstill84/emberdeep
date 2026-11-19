@@ -56,6 +56,7 @@ function rollRarity(rng, depth, src = 'room') {
   const w = [Math.max(20, 60 - 3 * d), 28 + d, 9 + 2 * d, d <= 1 ? 0.6 : 1 + 1.4 * (d - 1), d < 4 ? 0 : 0.25 * (d - 3)];
   if (src === 'boss') { w[0] *= 0.4; w[3] += 6; if (d >= 3) w[4] += 2 + d * 0.6; }
   if (src === 'armory') { w[0] = 0; w[2] += 6; }
+  if (src === 'chest') { w[0] = 0; w[3] += 3; if (d >= 4) w[4] += 0.6; }
   if (Meta.has('luck')) { w[2] *= 1.4; w[3] *= 1.4; w[4] *= 1.4; }
   let tot = w.reduce((a, b) => a + b, 0), r = rng() * tot;
   for (let i = 0; i < 5; i++) { r -= w[i]; if (r <= 0) return i; }
@@ -116,7 +117,7 @@ const ITEMS = [
   { id: 'haste', n: 'Haste Totem', d: '+22% attack speed', c: '#ffe066', pool: 'base', g: 'bolt', apply(p) { p.st.rate *= 1.22; } },
   { id: 'berserk', n: 'Berserker Band', d: '+30% damage, but every hit costs a whole heart', c: '#ff4040', pool: 'base', g: 'fang', apply(p) { p.st.dmg *= 1.3; p.st.hurtMult = 2; } },
   { id: 'mirror', n: 'Mirror Ward', d: 'Melee swings reflect enemy shots back', c: '#bfe3ff', pool: 'base', g: 'shield', apply(p) { p.st.reflect = true; } },
-  { id: 'hungry', n: 'Hungry Blade', d: 'Every 15 kills, heal half a heart', c: '#ff7aa8', pool: 'base', g: 'fang', apply(p) { p.hooks.kill.push(() => { p.hungry = (p.hungry || 0) + 1; if (p.hungry >= 15) { p.hungry = 0; World.heal(1); } }); } },
+  { id: 'hungry', n: 'Hungry Blade', d: 'Every 15 kills, heal half a heart', c: '#ff7aa8', pool: 'base', g: 'fang', apply(p) { p.hooks.kill.push(() => { p.hungry = (p.hungry || 0) + 1; if (p.hungry >= p.st.hungryN) { p.hungry = 0; World.heal(1); } }); } },
   { id: 'reach', n: 'Giant\'s Grip', d: 'Melee reaches farther and hits harder', c: '#d9a066', pool: 'base', g: 'sword', apply(p) { p.st.reach *= 1.3; p.st.meleeDmg *= 1.2; } },
   { id: 'eagle', n: 'Eagle Eye', d: '+12% crit chance, crits hit harder', c: '#ffd27a', pool: 'base', g: 'eye', apply(p) { p.st.crit += 0.12; p.st.critMult += 0.5; } },
   // Elemental Codex
@@ -127,7 +128,7 @@ const ITEMS = [
   { id: 'split', n: 'Splitting Rune', d: 'Shots split into shards on hit', c: '#c77dff', pool: 'codexA', g: 'split', apply(p) {
       p.hooks.hit.push((e, s) => { if (!s.proj || s.shard) return; const n = World.hasSyn('constellation') ? 3 : 2; for (let i = 0; i < n; i++) { const a = Math.atan2(s.proj.vy, s.proj.vx) + (i - (n - 1) / 2) * 0.9; World.spawnShard(e, a, s); } });
     } },
-  { id: 'volatile', n: 'Volatile Sigil', d: 'Foes explode when they die', c: '#ff9a3c', pool: 'codexA', g: 'burst', apply(p) { p.hooks.kill.push((e, s) => { if ((s.depth || 0) < 3) World.explode(e.x, e.y, 70, 14 * p.st.dmg, (s.depth || 0) + 1, '#ff9a3c'); }); } },
+  { id: 'volatile', n: 'Volatile Sigil', d: 'Foes explode when they die', c: '#ff9a3c', pool: 'codexA', g: 'burst', apply(p) { p.hooks.kill.push((e, s) => { if ((s.depth || 0) < 3) { const inf = World.hasSyn('inferno'); World.explode(e.x, e.y, inf ? 98 : 70, 14 * p.st.dmg, (s.depth || 0) + 1, '#ff9a3c', inf ? { elem: 'fire' } : {}); } }); } },
   { id: 'homing', n: 'Homing Glyph', d: 'Shots seek the nearest foe', c: '#d6a2ff', pool: 'codexA', g: 'eye', apply(p) { p.st.homing += 2.5; } },
   // Relic Vault
   { id: 'phoenix', n: 'Phoenix Feather', d: 'Revive once with 2 hearts', c: '#ffb02e', pool: 'relics', g: 'feather', apply(p) { p.revives++; } },
@@ -140,6 +141,18 @@ const SYNERGIES = [
   { id: 'balllightning', n: 'Ball Lightning', need: ['storm', 'ricochet'], d: 'Every bounce throws lightning' },
   { id: 'cinderwake', n: 'Cinder Wake', need: ['thunder', 'kindling'], d: 'Roll sparks set foes ablaze' },
   { id: 'deadeye', n: 'Deadeye', need: ['eagle', 'homing'], d: 'Seeking shots always crit the first foe they hit' },
+  // lighter combos from common items
+  { id: 'windrunner', n: 'Windrunner', need: ['boots', 'haste'], d: '+10% move and attack speed', apply(p) { p.st.speed *= 1.1; p.st.rate *= 1.1; } },
+  { id: 'bloodlust', n: 'Bloodlust', need: ['berserk', 'hungry'], d: 'Hungry Blade heals every 8 kills', apply(p) { p.st.hungryN = 8; } },
+  { id: 'glassedge', n: 'Glass Edge', need: ['berserk', 'eagle'], d: 'Crits deal +100% more damage', apply(p) { p.st.critMult += 1; } },
+  { id: 'parrymaster', n: 'Parry Master', need: ['mirror', 'reach'], d: 'Cutting a shot protects you twice as long', apply(p) { p.st.parry = 0.7; } },
+  { id: 'swarm', n: 'Seeker Swarm', need: ['homing', 'twinmoon'], d: 'One more seeking projectile', apply(p) { p.st.extraShots++; } },
+  // stronger combos from codex and relic items
+  { id: 'inferno', n: 'Inferno', need: ['kindling', 'volatile'], d: 'Death blasts are 40% bigger and set foes ablaze' },
+  { id: 'shatter', n: 'Shatter', need: ['frostlens', 'reach'], d: 'Frozen foes take triple melee damage' },
+  { id: 'tempest', n: 'Tempest', need: ['thunder', 'storm'], d: 'Roll sparks double and chain lightning' },
+  { id: 'thornwall', n: 'Thornwall', need: ['thorns', 'mirror'], d: 'Cutting a shot fires a ring of thorns' },
+  { id: 'rebirth', n: 'Rebirth', need: ['phoenix', 'heart'], d: 'The phoenix brings you back at full health' },
 ];
 
 // ===== Enemies (all from the open D&D rules) =====
@@ -159,6 +172,7 @@ const EDEF = {
   blight: { n: 'Twig Blight', hp: 10, r: 8, sp: 110, cost: 1, c: '#a07c4f', ai: 'rush', touch: 1, embers: 1 },
   owlbear: { n: 'Owlbear', hp: 120, r: 17, sp: 62, cost: 4, c: '#b58a5f', ai: 'charger', touch: 2, embers: 3 },
   sprite: { n: 'Fey Sprite', hp: 30, r: 9, sp: 60, cost: 3, c: '#7dffb0', ai: 'blink', touch: 1, embers: 2 },
+  mimic: { n: 'Mimic', hp: 220, r: 16, sp: 85, cost: 0, c: '#d9a066', ai: 'mimic', touch: 2, embers: 8 },
   spider: { n: 'Giant Spider', hp: 34, r: 12, sp: 85, cost: 2, c: '#c0a0ff', ai: 'kite', touch: 1, embers: 2, shot: 'web' },
 };
 
@@ -166,7 +180,7 @@ const EDEF = {
 const WORLDS = [null,
   {
     n: 'The Sunken Caverns', style: 'cave', tint: '#5fd4ff',
-    floor: ['#1d1822', '#18141e', '#221c29'], wall: '#2a2131', face: '#3a2e44', pillar: 'stalagmite', deco: 'crystal',
+    floor: ['#1d1822', '#18141e', '#221c29'], wall: '#2a2131', face: '#3a2e44', pillar: 'stalagmite', deco: 'crystal', breakable: true,
     pools: [['goblin', 'goblin', 'goblinArcher', 'stirge'], ['goblin', 'goblinArcher', 'stirge', 'kobold', 'cube'], ['goblin', 'goblinArcher', 'kobold', 'cube', 'stirge']],
     bosses: [
       { title: 'Hobgoblin Warlord', look: 'goblin', c: '#ff7a3a', moves: ['charge', 'volley', 'horn', 'fans'], summon: ['goblin', 'goblin', 'goblinArcher'] },
@@ -184,7 +198,7 @@ const WORLDS = [null,
   },
   {
     n: 'The Overgrown Ruins', style: 'forest', tint: '#8dff7a',
-    floor: ['#13201a', '#101a15', '#17261e'], wall: '#1d3326', face: '#2a4634', pillar: 'tree', deco: 'flower',
+    floor: ['#13201a', '#101a15', '#17261e'], wall: '#1d3326', face: '#2a4634', pillar: 'stump', deco: 'flower', breakable: true,
     pools: [['gnoll', 'gnoll', 'blight', 'blight', 'spider'], ['gnoll', 'blight', 'spider', 'sprite', 'owlbear'], ['gnoll', 'spider', 'sprite', 'owlbear', 'blight']],
     bosses: [
       { title: 'Owlbear Matriarch', look: 'owlbear', c: '#c8925a', moves: ['leap', 'charge', 'swipe', 'roar'] },
@@ -199,18 +213,18 @@ const levelLabel = (w, l) => `${w}-${l}`;
 // ===== Classes =====
 const CLASSES = {
   fighter: {
-    n: 'Fighter', c: '#ff9a5a', cat: 'melee', hp: 8, cost: 0, move: 'Roll', mana: 0.5,
+    n: 'Fighter', c: '#ff9a5a', cat: 'melee', hp: 8, cost: 0, move: 'Roll', mana: 0.5, regen: 0.5,
     perk: '+20% melee damage', moveD: 'Roll, then attack to lunge',
     kit: [{ type: 'sword', name: 'Worn Blade' }, { type: 'bow', name: 'Hunter\'s Bow' }],
   },
   ranger: {
-    n: 'Ranger', c: '#8dff7a', cat: 'ranged', hp: 6, cost: 220, move: 'Roll', mana: 0.5,
+    n: 'Ranger', c: '#8dff7a', cat: 'ranged', hp: 6, cost: 220, move: 'Roll', mana: 0.5, regen: 0.5,
     perk: '+20% ranged damage, bows draw 20% faster', moveD: 'Rolls scatter caltrops that hurt and slow foes',
     kit: [{ type: 'bow', name: 'Hunter\'s Bow' }, { type: 'spear', name: 'Ash Spear' }],
   },
   mage: {
-    n: 'Mage', c: '#b58bff', cat: 'magic', hp: 6, cost: 220, move: 'Blink', mana: 1,
-    perk: 'Full mana pool (other classes get half)', moveD: 'Blink a short distance instead of rolling',
+    n: 'Mage', c: '#b58bff', cat: 'magic', hp: 6, cost: 220, move: 'Blink', mana: 0.75, regen: 1,
+    perk: 'Bigger mana pool, faster regen', moveD: 'Blink farther than a roll, a bit slower to recharge',
     kit: [{ type: 'wand', name: 'Apprentice Wand' }, { type: 'spellbook', spell: 'missiles', name: 'Primer of Magic Missile' }],
   },
 };
