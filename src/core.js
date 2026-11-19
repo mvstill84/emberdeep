@@ -47,7 +47,7 @@ function hexA(hex, a) {
 // ===== Persistent meta (embers, unlocks, saved seeds, secrets) =====
 const SAVE_KEY = 'emberdeep.v1';
 const Meta = {
-  data: { embers: 0, unlocks: {}, seeds: [], secrets: {}, stats: { runs: 0, wins: 0, bestFloor: 0, kills: 0 }, muted: false },
+  data: { embers: 0, unlocks: {}, seeds: [], secrets: {}, stats: { runs: 0, wins: 0, bestDepth: 0, kills: 0 }, muted: false },
   load() {
     try { const s = localStorage.getItem(SAVE_KEY); if (s) Object.assign(this.data, JSON.parse(s)); } catch (e) { }
     this.data.stats = Object.assign({ runs: 0, wins: 0, bestFloor: 0, kills: 0 }, this.data.stats);
@@ -243,6 +243,11 @@ const Snd = {
       case 'portal': [262, 330, 392, 523, 659].forEach((f, i) => this.tone(f, 0.5, 'sine', 0.08, 1.01, i * 0.05)); break;
       case 'death': [392, 330, 262, 196].forEach((f, i) => this.tone(f, 0.4, 'triangle', 0.12, 0.9, i * 0.18)); break;
       case 'ui': this.tone(660, 0.05, 'triangle', 0.06); break;
+      case 'heavy': this.noise(0.22, 0.28, 700 * r, 1.5, 0, 2.2); this.tone(110 * r, 0.15, 'triangle', 0.1, 0.6); break;
+      case 'thunk': this.tone(160 * r, 0.1, 'square', 0.08, 0.5); break;
+      case 'whoosh': this.noise(0.35, 0.22, 500, 1, 0, 3); this.tone(200, 0.3, 'sawtooth', 0.05, 0.5); break;
+      case 'roar': this.tone(90 * r, 0.45, 'sawtooth', 0.14, 0.6); this.noise(0.4, 0.18, 300, 0.8, 0, 0.6); break;
+      case 'blink': this.tone(1200 * r, 0.15, 'sine', 0.07, 2); break;
     }
   },
 };

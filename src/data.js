@@ -1,4 +1,4 @@
-// ===== Data: elements, weapons, items, synergies, enemies, unlocks, secret seeds =====
+// ===== Data: elements, weapons, items, synergies, enemies, worlds, unlocks, secret seeds =====
 const ELEM = {
   none: { c: '#dfe9ff', n: '' },
   fire: { c: '#ff7a2a', n: 'Ember' },
@@ -7,64 +7,95 @@ const ELEM = {
   arcane: { c: '#c77dff', n: 'Arcane' },
 };
 const RARITY = [
-  { n: 'Common', c: '#b8c0cc', m: 1 },
-  { n: 'Rare', c: '#4fa3ff', m: 1.22 },
-  { n: 'Epic', c: '#b26bff', m: 1.45 },
-  { n: 'Legendary', c: '#ffb02e', m: 1.75 },
+  { n: 'Common', c: '#a3abb5', m: 1 },
+  { n: 'Uncommon', c: '#4ade80', m: 1.15 },
+  { n: 'Rare', c: '#4fa3ff', m: 1.32 },
+  { n: 'Epic', c: '#b26bff', m: 1.52 },
+  { n: 'Legendary', c: '#ff9a2e', m: 1.8 },
 ];
+// Weapon families. cat: melee | ranged | magic
 const WBASE = {
-  sword: { names: ['Blade', 'Sword', 'Saber', 'Cleaver', 'Longsword', 'Falchion'], dmg: [10, 14], cd: [0.34, 0.46], reach: [46, 60], arc: [105, 145] },
-  bow: { names: ['Bow', 'Longbow', 'Shortbow', 'Recurve', 'Warbow'], dmg: [12, 16], cd: [0.16, 0.24], charge: [0.45, 0.75], speed: [540, 660] },
-  staff: { names: ['Staff', 'Wand', 'Rod', 'Scepter', 'Stave'], dmg: [4.5, 6.5], cd: [0.13, 0.2], speed: [360, 440], spread: [0.04, 0.14] },
+  sword: { cat: 'melee', names: ['Blade', 'Sword', 'Saber', 'Longsword', 'Falchion'], dmg: [10, 13], cd: [0.34, 0.44], reach: [46, 58], arc: [110, 140], crit: 0.06, d: 'Balanced. Swats enemy shots out of the air.' },
+  axe: { cat: 'melee', names: ['Axe', 'Greataxe', 'Hatchet', 'War Axe', 'Bearded Axe'], dmg: [17, 22], cd: [0.58, 0.72], reach: [50, 60], arc: [150, 175], crit: 0.25, d: 'Slow, wide cleave. Crits often.' },
+  hammer: { cat: 'melee', names: ['Hammer', 'Warhammer', 'Maul', 'Mace', 'Morningstar'], dmg: [20, 26], cd: [0.75, 0.9], reach: [44, 52], arc: [70, 95], crit: 0.05, d: 'Slowest. Stuns, sends a shockwave, shatters bones.' },
+  spear: { cat: 'melee', names: ['Spear', 'Pike', 'Glaive', 'Trident', 'Halberd'], dmg: [9, 12], cd: [0.3, 0.38], reach: [80, 94], arc: [24, 24], crit: 0.08, d: 'Fast, long thrust through everything in a line.' },
+  bow: { cat: 'ranged', names: ['Bow', 'Longbow', 'Shortbow', 'Recurve', 'Warbow'], dmg: [12, 16], cd: [0.16, 0.24], charge: [0.45, 0.75], speed: [540, 660], crit: 0.08, d: 'Hold to draw. A full draw pierces.' },
+  crossbow: { cat: 'ranged', names: ['Crossbow', 'Arbalest', 'Repeater', 'Heavy Crossbow'], dmg: [20, 26], cd: [0.7, 0.9], speed: [700, 760], crit: 0.1, d: 'Slow reload. Bolts pierce every foe in a line.' },
+  wand: { cat: 'magic', names: ['Wand', 'Rod', 'Switch', 'Baton'], dmg: [3.4, 4.6], cd: [0.085, 0.12], speed: [420, 480], spread: [0.03, 0.08], crit: 0.04, d: 'Fast, weak bolts.' },
+  staff: { cat: 'magic', names: ['Staff', 'Stave', 'Quarterstaff', 'Crook'], dmg: [6.5, 9], cd: [0.2, 0.28], speed: [350, 400], spread: [0.04, 0.1], crit: 0.05, d: 'Steady bolts. Elements hit twice as hard.' },
+  spellbook: { cat: 'magic', names: ['Tome', 'Grimoire', 'Codex', 'Spellbook'], crit: 0.05, d: 'Slow, powerful spells.' },
+};
+const SPELLS = {
+  fireball: { n: 'Fireball', elem: 'fire', dmg: [30, 40], cd: [1.2, 1.5], d: 'Exploding ball of fire' },
+  chain: { n: 'Chain Lightning', elem: 'storm', dmg: [18, 24], cd: [0.9, 1.1], d: 'Arcs between up to 5 foes' },
+  icestorm: { n: 'Ice Storm', elem: 'frost', dmg: [7, 9], cd: [1.4, 1.7], d: 'Shards rain on an area, chilling' },
+  missiles: { n: 'Magic Missile', elem: 'arcane', dmg: [7, 9], cd: [1.0, 1.2], d: 'Five seeking darts' },
 };
 const QUIRKS = [
-  { id: 'twin', n: 'Twin', suf: 'of Pairs', d: 'Fires an extra projectile', t: ['bow', 'staff'] },
-  { id: 'echo', n: 'Echoing', suf: 'of Echoes', d: 'Every swing strikes twice', t: ['sword'] },
-  { id: 'swift', n: 'Swift', suf: 'of Haste', d: '+30% attack speed', t: ['sword', 'bow', 'staff'] },
-  { id: 'heavy', n: 'Heavy', suf: 'of Ruin', d: '+50% damage, slower', t: ['sword', 'bow', 'staff'] },
-  { id: 'seeking', n: 'Seeking', suf: 'of the Hunt', d: 'Shots curve toward foes', t: ['bow', 'staff'] },
-  { id: 'wave', n: 'Crescent', suf: 'of the Moon', d: 'Swings launch a crescent wave', t: ['sword'] },
-  { id: 'pierce', n: 'Piercing', suf: 'of Lances', d: 'Shots pierce one more foe', t: ['bow', 'staff'] },
-  { id: 'leech', n: 'Leeching', suf: 'of Thirst', d: 'Kills sometimes heal', t: ['sword', 'bow', 'staff'] },
+  { id: 'twin', n: 'Twin', suf: 'of Pairs', d: 'Fires an extra projectile', t: ['bow', 'crossbow', 'wand', 'staff'] },
+  { id: 'echo', n: 'Echoing', suf: 'of Echoes', d: 'Every swing strikes twice', t: ['sword', 'axe', 'spear'] },
+  { id: 'swift', n: 'Swift', suf: 'of Haste', d: '+30% attack speed', t: Object.keys(WBASE) },
+  { id: 'heavy', n: 'Heavy', suf: 'of Ruin', d: '+50% damage, slower', t: Object.keys(WBASE) },
+  { id: 'seeking', n: 'Seeking', suf: 'of the Hunt', d: 'Shots curve toward foes', t: ['bow', 'crossbow', 'wand', 'staff', 'spellbook'] },
+  { id: 'wave', n: 'Crescent', suf: 'of the Moon', d: 'Swings launch a crescent wave', t: ['sword', 'axe'] },
+  { id: 'pierce', n: 'Piercing', suf: 'of Lances', d: 'Shots pierce one more foe', t: ['bow', 'wand', 'staff'] },
+  { id: 'leech', n: 'Leeching', suf: 'of Thirst', d: 'Kills sometimes heal', t: Object.keys(WBASE) },
+  { id: 'stun', n: 'Stunning', suf: 'of Thunderclaps', d: 'Hits may stun', t: ['sword', 'axe', 'spear', 'crossbow'] },
+  { id: 'keen', n: 'Keen', suf: 'of Precision', d: '+15% crit chance', t: ['sword', 'axe', 'spear', 'bow', 'crossbow'] },
 ];
-const SYL = ['ka', 'vel', 'mor', 'thra', 'zen', 'ul', 'dra', 'sil', 'nyx', 'or', 'bel', 'cai', 'rhun', 'ae', 'lis', 'gor', 'vash', 'myr', 'ith', 'tal'];
+const SYL = ['ka', 'vel', 'mor', 'thra', 'zen', 'ul', 'dra', 'sil', 'nyx', 'or', 'bel', 'cai', 'rhun', 'ae', 'lis', 'gor', 'vash', 'myr', 'ith', 'tal', 'grim', 'uk', 'zar'];
 function properName(rng, n = 2) {
   let s = ''; for (let i = 0; i < n; i++) s += rng.pick(SYL);
   if (rng.chance(0.3)) s = s.slice(0, 2) + "'" + s.slice(2);
   return s[0].toUpperCase() + s.slice(1);
 }
 
+// Rarity odds by depth (1-9) and source. Legendary is gated to later worlds and bosses.
+function rollRarity(rng, depth, src = 'room') {
+  const d = depth;
+  const w = [Math.max(20, 60 - 3 * d), 28 + d, 9 + 2 * d, d <= 1 ? 0.6 : 1 + 1.4 * (d - 1), d < 4 ? 0 : 0.25 * (d - 3)];
+  if (src === 'boss') { w[0] *= 0.4; w[3] += 6; if (d >= 3) w[4] += 2 + d * 0.6; }
+  if (src === 'armory') { w[0] = 0; w[2] += 6; }
+  if (Meta.has('luck')) { w[2] *= 1.4; w[3] *= 1.4; w[4] *= 1.4; }
+  let tot = w.reduce((a, b) => a + b, 0), r = rng() * tot;
+  for (let i = 0; i < 5; i++) { r -= w[i]; if (r <= 0) return i; }
+  return 0;
+}
+function pickWeaponType(rng) {
+  const cat = rng.pick(['melee', 'ranged', 'magic']);
+  return rng.pick(Object.keys(WBASE).filter(k => WBASE[k].cat === cat));
+}
+
 // Build a weapon from a seed. Everything about it comes out of the rng.
 function makeWeapon(rng, opts = {}) {
-  const type = opts.type || rng.pick(opts.types || ['sword', 'bow', 'staff']);
+  const type = opts.type || pickWeaponType(rng);
   const B = WBASE[type];
-  let rar = opts.rarity;
-  if (rar === undefined) {
-    const luck = Meta.has('luck') ? 1.5 : 1, f = opts.floor || 1;
-    const roll = rng();
-    rar = roll < 0.035 * luck * f ? 3 : roll < 0.14 * luck * f ? 2 : roll < 0.42 * luck ? 1 : 0;
-  }
-  if (Game.mods.allLegendary) rar = 3;
+  let rar = opts.rarity !== undefined ? opts.rarity : rollRarity(rng, opts.depth || 1, opts.src);
+  if (Game.mods.allLegendary) rar = 4;
   const R0 = RARITY[rar];
-  const w = {
-    type, rarity: rar,
-    dmg: rng.range(...B.dmg) * R0.m,
-    cd: rng.range(...B.cd),
-    elem: opts.elem || (rar === 0 && rng.chance(0.6) ? 'none' : rng.pick(['none', 'fire', 'frost', 'storm', 'arcane'])),
-    quirks: [],
-  };
-  if (type === 'sword') { w.reach = rng.range(...B.reach); w.arc = rng.range(...B.arc) * Math.PI / 180; }
-  if (type === 'bow') { w.charge = rng.range(...B.charge); w.speed = rng.range(...B.speed); }
-  if (type === 'staff') { w.speed = rng.range(...B.speed); w.spread = rng.range(...B.spread); }
-  const nq = rar >= 3 ? 2 : rar >= 1 ? 1 : (rng.chance(0.25) ? 1 : 0);
-  const pool = QUIRKS.filter(q => q.t.includes(type));
-  rng.shuffle(pool);
-  for (let i = 0; i < nq; i++) w.quirks.push(pool[i].id);
+  const w = { type, cat: B.cat, rarity: rar, crit: B.crit, quirks: [] };
+  if (type === 'spellbook') {
+    w.spell = opts.spell || rng.pick(Object.keys(SPELLS));
+    const S = SPELLS[w.spell]; w.elem = S.elem; w.dmg = rng.range(...S.dmg) * R0.m; w.cd = rng.range(...S.cd);
+  } else {
+    w.dmg = rng.range(...B.dmg) * R0.m; w.cd = rng.range(...B.cd);
+    const elemChance = [0.15, 0.35, 0.55, 1, 1][rar] + (B.cat === 'magic' ? 0.4 : 0);
+    w.elem = opts.elem || (rng.chance(elemChance) ? rng.pick(['fire', 'frost', 'storm', 'arcane']) : 'none');
+  }
+  if (B.reach) { w.reach = rng.range(...B.reach); w.arc = rng.range(...B.arc) * Math.PI / 180; }
+  if (B.charge) w.charge = rng.range(...B.charge);
+  if (B.speed) w.speed = rng.range(...B.speed);
+  if (B.spread) w.spread = rng.range(...B.spread);
+  const nq = rar >= 4 ? 2 : rar === 3 ? (rng.chance(0.5) ? 2 : 1) : rar === 2 ? 1 : rar === 1 ? (rng.chance(0.4) ? 1 : 0) : 0;
+  const pool = rng.shuffle(QUIRKS.filter(q => q.t.includes(type)));
+  for (let i = 0; i < nq && i < pool.length; i++) w.quirks.push(pool[i].id);
   if (w.quirks.includes('heavy')) { w.dmg *= 1.5; w.cd *= 1.35; }
   if (w.quirks.includes('swift')) w.cd /= 1.3;
+  if (w.quirks.includes('keen')) w.crit += 0.15;
   const base = rng.pick(B.names), el = ELEM[w.elem].n;
   if (opts.name) w.name = opts.name;
-  else if (rar === 3) w.name = `${properName(rng)}, ${el ? el + ' ' : ''}${base}`;
+  else if (type === 'spellbook') w.name = rar === 4 ? `${properName(rng)}'s ${base} of ${SPELLS[w.spell].n}` : `${base} of ${SPELLS[w.spell].n}`;
+  else if (rar === 4) w.name = `${properName(rng)}, ${el ? el + ' ' : ''}${base}`;
   else {
     const q = w.quirks[0] ? QUIRKS.find(x => x.id === w.quirks[0]) : null;
     w.name = `${el ? el + ' ' : ''}${base}${q ? ' ' + q.suf : ''}`;
@@ -84,7 +115,8 @@ const ITEMS = [
   { id: 'berserk', n: 'Berserker Band', d: '+30% damage, -1 heart', c: '#ff4040', pool: 'base', g: 'fang', apply(p) { p.st.dmg *= 1.3; p.maxHp = Math.max(2, p.maxHp - 2); p.hp = Math.min(p.hp, p.maxHp); } },
   { id: 'mirror', n: 'Mirror Ward', d: 'Swords reflect enemy shots back', c: '#bfe3ff', pool: 'base', g: 'shield', apply(p) { p.st.reflect = true; } },
   { id: 'hungry', n: 'Hungry Blade', d: 'Every 15 kills, heal half a heart', c: '#ff7aa8', pool: 'base', g: 'fang', apply(p) { p.hooks.kill.push(() => { p.hungry = (p.hungry || 0) + 1; if (p.hungry >= 15) { p.hungry = 0; World.heal(1); } }); } },
-  { id: 'reach', n: 'Giant\'s Grip', d: 'Swords reach farther and hit harder', c: '#d9a066', pool: 'base', g: 'sword', apply(p) { p.st.reach *= 1.3; p.st.meleeDmg *= 1.2; } },
+  { id: 'reach', n: 'Giant\'s Grip', d: 'Melee reaches farther and hits harder', c: '#d9a066', pool: 'base', g: 'sword', apply(p) { p.st.reach *= 1.3; p.st.meleeDmg *= 1.2; } },
+  { id: 'eagle', n: 'Eagle Eye', d: '+12% crit chance, crits hit harder', c: '#ffd27a', pool: 'base', g: 'eye', apply(p) { p.st.crit += 0.12; p.st.critMult += 0.5; } },
   // Elemental Codex
   { id: 'kindling', n: 'Kindling', d: 'Hits set foes on fire', c: '#ff7a2a', pool: 'codexE', g: 'flame', apply(p) { p.st.addElem.add('fire'); } },
   { id: 'frostlens', n: 'Frost Lens', d: 'Hits chill foes, sometimes freezing them', c: '#7fd8ff', pool: 'codexE', g: 'flake', apply(p) { p.st.addElem.add('frost'); } },
@@ -105,39 +137,62 @@ const SYNERGIES = [
   { id: 'constellation', n: 'Constellation', need: ['split', 'twinmoon'], d: 'Shots split into three shards' },
   { id: 'balllightning', n: 'Ball Lightning', need: ['storm', 'ricochet'], d: 'Every bounce throws lightning' },
   { id: 'cinderwake', n: 'Cinder Wake', need: ['thunder', 'kindling'], d: 'Roll sparks set foes ablaze' },
+  { id: 'deadeye', n: 'Deadeye', need: ['eagle', 'homing'], d: 'Seeking shots always crit the first foe they hit' },
 ];
 
-// ===== Enemies =====
+// ===== Enemies (all from the open D&D rules) =====
+// ai: rush | kite | trapper | ooze | swoop | walk | caster | necro | wraith | flank | charger | blink | boss
 const EDEF = {
-  slime: { hp: 24, r: 11, sp: 62, cost: 1, c: '#6cff8a', ai: 'hop', touch: 1, embers: 1 },
-  bigslime: { hp: 60, r: 18, sp: 48, cost: 3, c: '#3fe070', ai: 'hop', touch: 1, embers: 2, split: 'slime' },
-  archer: { hp: 26, r: 11, sp: 72, cost: 2, c: '#efe6cf', ai: 'kite', touch: 1, embers: 1 },
-  cultist: { hp: 36, r: 12, sp: 40, cost: 3, c: '#b26bff', ai: 'caster', touch: 1, embers: 2 },
-  bat: { hp: 12, r: 8, sp: 150, cost: 1, c: '#ff4d6d', ai: 'swoop', touch: 1, embers: 1 },
-  knight: { hp: 80, r: 15, sp: 58, cost: 4, c: '#9fb4ff', ai: 'charger', touch: 2, embers: 3 },
+  goblin: { n: 'Goblin', hp: 18, r: 9, sp: 95, cost: 1, c: '#7bd36a', ai: 'rush', touch: 1, embers: 1 },
+  goblinArcher: { n: 'Goblin Archer', hp: 20, r: 9, sp: 75, cost: 2, c: '#b5d36a', ai: 'kite', touch: 1, embers: 1, shot: 'arrowE' },
+  kobold: { n: 'Kobold Trapper', hp: 16, r: 9, sp: 80, cost: 2, c: '#e0884a', ai: 'trapper', touch: 1, embers: 1 },
+  cube: { n: 'Gelatinous Cube', hp: 75, r: 17, sp: 34, cost: 3, c: '#6fe3c8', ai: 'ooze', touch: 1, embers: 3, engulf: true },
+  stirge: { n: 'Stirge', hp: 11, r: 8, sp: 150, cost: 1, c: '#ff4d6d', ai: 'swoop', touch: 1, embers: 1 },
+  skeleton: { n: 'Skeleton', hp: 26, r: 10, sp: 70, cost: 2, c: '#e8e2cf', ai: 'walk', touch: 1, embers: 1, reform: true },
+  skelArcher: { n: 'Skeleton Archer', hp: 22, r: 10, sp: 68, cost: 2, c: '#d8d0b8', ai: 'kite', touch: 1, embers: 1, reform: true, shot: 'arrowE' },
+  zombie: { n: 'Zombie', hp: 62, r: 13, sp: 36, cost: 2, c: '#8fae6a', ai: 'walk', touch: 1, embers: 2 },
+  necro: { n: 'Necromancer', hp: 40, r: 12, sp: 40, cost: 3, c: '#b26bff', ai: 'necro', touch: 1, embers: 2 },
+  wraith: { n: 'Wraith', hp: 24, r: 11, sp: 120, cost: 2, c: '#9fd8ff', ai: 'wraith', touch: 1, embers: 2 },
+  gnoll: { n: 'Gnoll', hp: 32, r: 11, sp: 88, cost: 2, c: '#d9a066', ai: 'flank', touch: 1, embers: 1 },
+  blight: { n: 'Twig Blight', hp: 10, r: 8, sp: 110, cost: 1, c: '#a07c4f', ai: 'rush', touch: 1, embers: 1 },
+  owlbear: { n: 'Owlbear', hp: 120, r: 17, sp: 62, cost: 4, c: '#b58a5f', ai: 'charger', touch: 2, embers: 3 },
+  sprite: { n: 'Fey Sprite', hp: 30, r: 9, sp: 60, cost: 3, c: '#7dffb0', ai: 'blink', touch: 1, embers: 2 },
+  spider: { n: 'Giant Spider', hp: 34, r: 12, sp: 85, cost: 2, c: '#c0a0ff', ai: 'kite', touch: 1, embers: 2, shot: 'web' },
 };
-const FLOOR_POOL = [
-  null,
-  ['slime', 'slime', 'archer', 'cultist', 'bigslime'],
-  ['slime', 'archer', 'cultist', 'bat', 'bat', 'bigslime', 'knight'],
-  ['archer', 'cultist', 'bat', 'bigslime', 'knight', 'knight'],
-  ['archer', 'cultist', 'bat', 'bigslime', 'knight'],
-];
-const FLOOR_NAMES = [null, 'The Sunken Halls', 'The Ashen Crypt', 'The Hollow Throne', 'The Deep Below'];
-const FLOOR_TINT = [null, '#39e6ff', '#c77dff', '#ff7a3a', '#7dffb0'];
-const BOSS_TITLES = ['the Ashen Warden', 'Keeper of Cinders', 'the Hollow King', 'Who Waits Below'];
 
-// ===== Sanctum unlocks (permanent) =====
+// ===== Worlds: three levels each, same theme. =====
+const WORLDS = [null,
+  {
+    n: 'The Sunken Caverns', style: 'cave', tint: '#5fd4ff',
+    floor: ['#1d1822', '#18141e', '#221c29'], wall: '#2a2131', face: '#3a2e44', pillar: 'stalagmite', deco: 'crystal',
+    pools: [['goblin', 'goblin', 'goblinArcher', 'stirge'], ['goblin', 'goblinArcher', 'stirge', 'kobold', 'cube'], ['goblin', 'goblinArcher', 'kobold', 'cube', 'stirge']],
+    mini: { n: 'Bugbear Chieftain', c: '#c98a4a', shape: 5 }, boss: { title: 'Hobgoblin Warlord', c: '#ff7a3a', shape: 6 }, minions: ['goblin', 'goblin', 'stirge'],
+  },
+  {
+    n: 'The Forgotten Crypts', style: 'crypt', tint: '#b58bff',
+    floor: ['#1a1c26', '#15161e', '#1e2130'], wall: '#252939', face: '#353b54', pillar: 'tomb', deco: 'candle',
+    pools: [['skeleton', 'skeleton', 'skelArcher', 'zombie'], ['skeleton', 'skelArcher', 'zombie', 'wraith', 'necro'], ['skeleton', 'skelArcher', 'zombie', 'wraith', 'necro', 'cube']],
+    mini: { n: 'Bone Knight', c: '#d8d0b8', shape: 4 }, boss: { title: 'the Lich-Priest', c: '#c77dff', shape: 7 }, minions: ['skeleton', 'skeleton', 'wraith'],
+  },
+  {
+    n: 'The Overgrown Ruins', style: 'forest', tint: '#8dff7a',
+    floor: ['#13201a', '#101a15', '#17261e'], wall: '#1d3326', face: '#2a4634', pillar: 'tree', deco: 'flower',
+    pools: [['gnoll', 'gnoll', 'blight', 'blight', 'spider'], ['gnoll', 'blight', 'spider', 'sprite', 'owlbear'], ['gnoll', 'spider', 'sprite', 'owlbear', 'blight']],
+    mini: { n: 'Owlbear Matriarch', c: '#c8925a', shape: 5 }, boss: { title: 'the Blighted Treant', c: '#7dff7a', shape: 8 }, minions: ['blight', 'blight', 'gnoll'],
+  },
+];
+const WORLD_COUNT = 3;
+const levelLabel = (w, l) => `${w}-${l}`;
+
+// ===== Sanctum unlocks (permanent). A full run (~250 embers) buys about one. =====
 const UNLOCKS = [
-  { id: 'heart1', n: 'Sturdy Heart', d: 'Start every run with +1 heart', cost: 30 },
-  { id: 'staffs', n: 'Spellbook', d: 'Staffs can appear in the dungeon', cost: 25 },
-  { id: 'codexE', n: 'Elemental Codex', d: 'Adds Kindling, Frost Lens and Storm Coil to the item pool', cost: 45 },
-  { id: 'fletcher', n: 'Fletcher', d: 'Your starting bow is Rare', cost: 35 },
-  { id: 'codexA', n: 'Arcane Codex', d: 'Adds Splitting Rune, Volatile Sigil and Homing Glyph', cost: 60 },
-  { id: 'heart2', n: 'Stout Heart', d: 'Another +1 starting heart', cost: 90, req: 'heart1' },
-  { id: 'luck', n: 'Lucky Loot', d: 'Rare, Epic and Legendary weapons drop more often', cost: 75 },
-  { id: 'relics', n: 'Relic Vault', d: 'Adds Phoenix Feather, Rolling Thunder and Thorn Mantle', cost: 100 },
-  { id: 'deep', n: 'The Deep Below', d: 'A fourth floor opens past the Hollow Throne', cost: 150, req: 'relics' },
+  { id: 'kit', n: 'Field Kit', d: 'Start runs with Uncommon weapons', cost: 140 },
+  { id: 'heart1', n: 'Sturdy Heart', d: 'Start every run with +1 heart', cost: 180 },
+  { id: 'codexE', n: 'Elemental Codex', d: 'Adds Kindling, Frost Lens and Storm Coil to the item pool', cost: 220 },
+  { id: 'codexA', n: 'Arcane Codex', d: 'Adds Splitting Rune, Volatile Sigil and Homing Glyph', cost: 300 },
+  { id: 'heart2', n: 'Stout Heart', d: 'Another +1 starting heart', cost: 420, req: 'heart1' },
+  { id: 'luck', n: 'Lucky Loot', d: 'Rare, Epic and Legendary drops are more common', cost: 500 },
+  { id: 'relics', n: 'Relic Vault', d: 'Adds Phoenix Feather, Rolling Thunder and Thorn Mantle', cost: 650 },
 ];
 
 // ===== Secret seeds: only their hashes live in the code, so you can't read them out of the file =====

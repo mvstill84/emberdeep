@@ -50,7 +50,7 @@ const HUD = {
       let title, line1, line2 = '', col;
       if (k.kind === 'chest') { title = 'Treasure Chest'; line1 = 'Open it'; col = '#ffd27a'; }
       else if (k.kind === 'item') { title = k.item.n; line1 = k.item.d; col = k.item.c; const sy = SYNERGIES.find(sy => sy.need.includes(k.item.id) && sy.need.some(n => p.items.includes(n)) && !p.syn.includes(sy.id)); if (sy) line2 = '✦ Completes synergy: ' + sy.n; }
-      else { const w = k.w, cur = p.weapons[p.wi]; title = w.name; col = RARITY[w.rarity].c; line1 = `${RARITY[w.rarity].n} ${w.type} · ${weaponLine(w)}`; line2 = w.quirks.map(q => QUIRKS.find(x => x.id === q).d).join(' · '); if (p.weapons.length >= 2) line2 = (line2 ? line2 + '   ' : '') + `(replaces ${cur.name})`; }
+      else { const w = k.w, cur = p.weapons[p.wi]; title = w.name; col = RARITY[w.rarity].c; line1 = `${RARITY[w.rarity].n} ${w.type} · ${weaponLine(w)}`; line2 = w.quirks.length ? w.quirks.map(q => QUIRKS.find(x => x.id === q).d).join(' · ') : WBASE[w.type].d; if (p.weapons.length >= 2) line2 = (line2 ? line2 + '   ' : '') + `(replaces ${cur.name})`; }
       const key = Input.last === 'touch' ? 'Tap TAKE' : Input.last === 'pad' ? 'X' : 'E';
       c.font = font(13, 600); const cw = Math.min(W - 40, Math.max(280, c.measureText(line1).width + 40, c.measureText(line2).width + 40));
       const x = (W - cw) / 2, y = H * 0.62;
@@ -75,7 +75,7 @@ const HUD = {
   minimap(c, W, pad, font) {
     const m = 15, tb = Input.touchButtons().find(b => b.id === 'pause'), ox = W - pad - GRID * m - (Input.last === 'touch' ? tb.r * 2 + 8 : 0), oy = pad;
     c.fillStyle = 'rgba(10,6,20,0.55)'; roundRect(c, ox - 6, oy - 6, GRID * m + 12, GRID * m + 12, 8); c.fill();
-    const tint = FLOOR_TINT[World.floor];
+    const tint = World.theme.tint;
     c.strokeStyle = hexA(tint, 0.5); c.lineWidth = 2;
     for (const r of World.rooms) if (r.visited) for (const id of r.links) { const n = World.rooms[id]; if (!n.known) continue; c.beginPath(); c.moveTo(ox + r.cx * m + m / 2, oy + r.cy * m + m / 2); c.lineTo(ox + n.cx * m + m / 2, oy + n.cy * m + m / 2); c.stroke(); }
     for (const r of World.rooms) {
@@ -87,7 +87,7 @@ const HUD = {
       if (r.type === 'treasure') { c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3, 0, TAU); c.fill(); }
     }
     c.textAlign = 'right'; c.fillStyle = 'rgba(233,228,255,0.6)'; c.font = font(12, 700);
-    c.fillText(`Floor ${World.floor} · ${Game.seed}`, ox + GRID * m + 6, oy + GRID * m + 22);
+    c.fillText(`${levelLabel(World.world, World.level)} · ${Game.seed}`, ox + GRID * m + 6, oy + GRID * m + 22);
     if (Game.secret) { c.fillStyle = '#7fffd4'; c.fillText(Game.secret.n, ox + GRID * m + 6, oy + GRID * m + 38); }
   },
   touch(c, W, H) {
@@ -110,16 +110,15 @@ const HUD = {
 };
 function fitText(c, s, w) { if (c.measureText(s).width <= w) return s; while (s.length > 3 && c.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
 function weaponLine(w) {
-  const dmg = Math.round(w.dmg * (w.type === 'staff' ? 1 : 1));
-  const spd = (1 / w.cd).toFixed(1);
+  const dmg = Math.round(w.dmg), spd = (1 / w.cd).toFixed(1);
   const el = w.elem !== 'none' ? ' · ' + w.elem : '';
+  if (w.type === 'spellbook') return `${SPELLS[w.spell].d} · ${dmg} dmg · ${spd}/s`;
   return w.type === 'bow' ? `${dmg} dmg · ${w.charge.toFixed(2)}s draw${el}` : `${dmg} dmg · ${spd}/s${el}`;
 }
 
 // ===== Game: state, runs, menus =====
 const Game = {
   state: 'menu', seed: '', seedNum: 0, mods: {}, secret: null, hs: 0, runEmbers: 0, runTime: 0, bannerData: null, deadT: 0,
-  maxFloor() { return Meta.has('deep') ? 4 : 3; },
   hitstop(t) { this.hs = Math.max(this.hs, t); },
   banner(title, sub, dur = 2) { this.bannerData = { title, sub, dur, t: 0 }; },
   newRun(seedStr) {
@@ -131,7 +130,7 @@ const Game = {
     this.runEmbers = 0; this.runTime = 0; this.deadT = 0; this.hs = 0;
     Meta.data.stats.runs++; Meta.save();
     Music.setSeed(this.seedNum); Music.on = true;
-    World.startFloor(1);
+    World.startLevel(1, 1);
     if (sec) {
       const first = !Meta.data.secrets[this.seed];
       if (first) { Meta.data.secrets[this.seed] = sec.n; Meta.data.embers += 25; Meta.save(); }
@@ -139,15 +138,16 @@ const Game = {
     }
     this.state = 'play'; Menu.hide();
   },
-  nextFloor(last) {
+  nextLevel(last) {
     if (last) { this.end(true); return; }
-    World.startFloor(World.floor + 1, true);
+    if (World.level < 3) World.startLevel(World.world, World.level + 1, true);
+    else World.startLevel(World.world + 1, 1, true);
   },
   onDeath() { this.deadT = 1.4; Music.target = 0; },
   end(won) {
     this.state = won ? 'win' : 'dead';
     Meta.data.embers += this.runEmbers;
-    Meta.data.stats.bestFloor = Math.max(Meta.data.stats.bestFloor, World.floor);
+    Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, World.depth);
     if (won) Meta.data.stats.wins++;
     Meta.save(); Music.on = false;
     Snd.play(won ? 'portal' : 'death');
@@ -159,7 +159,7 @@ const Game = {
   },
   saveSeed() {
     const list = Meta.data.seeds.filter(s => s.seed !== this.seed);
-    list.unshift({ seed: this.seed, date: new Date().toLocaleDateString(), floor: World.floor, won: this.state === 'win', secret: this.secret ? this.secret.n : '' });
+    list.unshift({ seed: this.seed, date: new Date().toLocaleDateString(), level: levelLabel(World.world, World.level), won: this.state === 'win', secret: this.secret ? this.secret.n : '' });
     Meta.data.seeds = list.slice(0, 40); Meta.save();
   },
   frame(ts) {
@@ -218,7 +218,7 @@ const Menu = {
       this.on('b-go', () => Game.newRun(inp.value || inp.placeholder));
       this.on('b-back', () => this.show('title'));
     } else if (name === 'saved') {
-      const rows = M.seeds.map((s, i) => `<div class="card"><div class="grow"><b>${s.seed}</b>${s.secret ? ` <span class="secret">· ${s.secret}</span>` : ''}<small>${s.won ? 'Escaped' : 'Reached floor ' + s.floor} · ${s.date}</small></div><button class="btn" id="play-${i}">Play</button><button class="btn" id="del-${i}">✕</button></div>`).join('');
+      const rows = M.seeds.map((s, i) => `<div class="card"><div class="grow"><b>${s.seed}</b>${s.secret ? ` <span class="secret">· ${s.secret}</span>` : ''}<small>${s.won ? 'Escaped' : 'Reached ' + (s.level || 'floor ' + s.floor)} · ${s.date}</small></div><button class="btn" id="play-${i}">Play</button><button class="btn" id="del-${i}">✕</button></div>`).join('');
       this.html(`<h2>Saved Seeds</h2><div class="list">${rows || '<div class="sub">No saved seeds yet. Save one from the pause menu or after a run.</div>'}</div><button class="btn small" id="b-back">Back</button>`);
       M.seeds.forEach((s, i) => { this.on('play-' + i, () => Game.newRun(s.seed)); this.on('del-' + i, () => { M.seeds.splice(i, 1); Meta.save(); this.show('saved'); }); });
       this.on('b-back', () => this.show('title'));
@@ -230,15 +230,16 @@ const Menu = {
       const found = Object.values(M.secrets);
       this.html(`<h2>The Sanctum</h2><div class="sub">You carry <span class="ember">${M.embers} embers</span>. Spend them to grow stronger between runs.</div>
         <div class="list">${rows}</div>
-        <div class="hint">Secret seeds found: ${found.length} / ${Object.keys(SECRETS).length}${found.length ? ' · <span class="secret">' + found.join(', ') + '</span>' : ''}<br>Runs ${M.stats.runs} · Escapes ${M.stats.wins} · Deepest floor ${M.stats.bestFloor} · Foes slain ${M.stats.kills}</div>
-        <button class="btn small" id="b-back">Back</button>`);
+        <div class="hint">Secret seeds found: ${found.length} / ${Object.keys(SECRETS).length}${found.length ? ' · <span class="secret">' + found.join(', ') + '</span>' : ''}<br>Runs ${M.stats.runs} · Escapes ${M.stats.wins} · Deepest level ${M.stats.bestDepth ? levelLabel(Math.ceil(M.stats.bestDepth / 3), (M.stats.bestDepth - 1) % 3 + 1) : '-'} · Foes slain ${M.stats.kills}</div>
+        <div class="row"><button class="btn small" id="b-back">Back</button><button class="btn small" id="b-reset">Reset Progress</button></div>`);
+      this.on('b-reset', () => { const b = document.getElementById('b-reset'); if (b.dataset.armed) { M.embers = 0; M.unlocks = {}; Meta.save(); this.show('sanctum'); } else { b.dataset.armed = 1; b.textContent = 'Tap again to wipe embers + unlocks'; } });
       for (const u of UNLOCKS) this.on('u-' + u.id, () => { if (M.embers >= u.cost) { M.embers -= u.cost; M.unlocks[u.id] = 1; Meta.save(); Snd.play('item'); this.show('sanctum'); } });
       this.on('b-back', () => this.show('title'));
     } else if (name === 'pause') {
       const p = World.players[0];
       const items = p.items.map(id => ITEMS.find(x => x.id === id)).map(it => `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}</b><small>${it.d}</small></div></div>`).join('');
       const syn = p.syn.map(id => SYNERGIES.find(s => s.id === id)).map(s => `<div class="card"><div class="grow"><b class="secret">✦ ${s.n}</b><small>${s.d}</small></div></div>`).join('');
-      this.html(`<h2>Paused</h2><div class="sub">Seed <b>${Game.seed}</b> · Floor ${World.floor} · ${fmtTime(Game.runTime)}</div>
+      this.html(`<h2>Paused</h2><div class="sub">Seed <b>${Game.seed}</b> · Level ${levelLabel(World.world, World.level)} · ${fmtTime(Game.runTime)}</div>
         <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>
         <button class="btn" id="b-res">Resume</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button></div>
@@ -250,8 +251,8 @@ const Menu = {
     } else if (name === 'dead' || name === 'win') {
       const p = World.players[0], won = name === 'win';
       this.html(`<h1 style="font-size:clamp(36px,7vw,60px)">${won ? 'ESCAPED' : 'FALLEN'}</h1>
-        <div class="sub">${won ? 'You climbed out of the deep. It will be waiting.' : `Lost on ${FLOOR_NAMES[World.floor]}.`}</div>
-        <div class="stats"><span>Seed</span><span>${Game.seed}</span><span>Floor reached</span><span>${World.floor}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span><span>Foes slain</span><span>${p.kills}</span><span>Items</span><span>${p.items.length}</span><span>Embers banked</span><span class="ember">+${Game.runEmbers}</span></div>
+        <div class="sub">${won ? 'You climbed out of the deep. It will be waiting.' : `Lost on level ${levelLabel(World.world, World.level)}, ${World.theme.n}.`}</div>
+        <div class="stats"><span>Seed</span><span>${Game.seed}</span><span>Level reached</span><span>${levelLabel(World.world, World.level)}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span><span>Foes slain</span><span>${p.kills}</span><span>Items</span><span>${p.items.length}</span><span>Embers banked</span><span class="ember">+${Game.runEmbers}</span></div>
         <button class="btn" id="b-again">Same Seed Again</button>
         <button class="btn" id="b-new">New Seed</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-sanct">Sanctum · ${M.embers} ◆</button></div>
