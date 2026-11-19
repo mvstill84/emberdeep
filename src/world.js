@@ -34,15 +34,16 @@ const World = {
     while (q.length) { const id = q.shift(); for (const n of rooms[id].links) if (!dist.has(n)) { dist.set(n, dist.get(id) + 1); q.push(n); } }
     rooms.forEach(r => r.dist = dist.get(r.id));
     const ends = rooms.filter(r => r.links.length === 1 && r.type !== 'start').sort((a, b) => b.dist - a.dist);
-    const boss = ends[0] || rooms[rooms.length - 1]; boss.type = 'boss'; boss.mini = l < 3;
+    const boss = ends[0] || rooms[rooms.length - 1]; boss.type = l === 3 ? 'boss' : 'exit';
     if (l === 2) { const a = ends[1] || rng.pick(rooms.filter(r => r.type === 'combat')); if (a) a.type = 'armory'; }
     for (const r of rooms) for (const [dx, dy] of DIRS) {
       const n = cells.get(key(r.cx + dx, r.cy + dy));
-      if (n && n.id > r.id && !r.links.includes(n.id) && r.type !== 'boss' && n.type !== 'boss' && rng.chance(0.12)) link(r, n);
+      if (n && n.id > r.id && !r.links.includes(n.id) && r.type !== 'boss' && n.type !== 'boss' && r.type !== 'exit' && n.type !== 'exit' && rng.chance(0.12)) link(r, n);
     }
     // bounding rects (odd sizes keep a clean center tile)
     for (const r of rooms) {
-      if (r.type === 'boss') { r.w = r.mini ? 19 : 21; r.h = r.mini ? 13 : 15; }
+      if (r.type === 'boss') { r.w = 21; r.h = 15; }
+      else if (r.type === 'exit') { r.w = 19; r.h = 13; }
       else if (r.type === 'start' || r.type === 'armory') { r.w = 11; r.h = 9; }
       else { r.w = rng.pick([13, 15, 17, 19]); r.h = rng.pick([9, 11, 13]); }
       r.x = r.cx * CW + Math.floor((CW - r.w) / 2); r.y = r.cy * CH + Math.floor((CH - r.h) / 2);
@@ -78,8 +79,8 @@ const World = {
     for (const r of rooms) {
       for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (map[y * MW + x] === FLOOR) rid[y * MW + x] = r.id;
       const rr = RNG(hash(Game.seedNum, w * 10 + l, r.id, 7));
-      if (r.type === 'combat' || r.type === 'boss') this.obstacles(r, rr, style);
-      if (r.type === 'combat') this.planWaves(r, rr);
+      if (r.type === 'combat' || r.type === 'boss' || r.type === 'exit') this.obstacles(r, rr, style);
+      if (r.type === 'combat' || r.type === 'exit') this.planWaves(r, rr);
       r.deco = [];
       for (let i = 0; i < r.w * r.h / 12; i++) r.deco.push({ x: r.x + rr.int(0, r.w - 1), y: r.y + rr.int(0, r.h - 1), k: rr.int(0, 3), a: rr() * TAU, s: rr.range(0.6, 1.2) });
     }
@@ -89,7 +90,7 @@ const World = {
   carveRoom(r, rng, style) {
     const map = this.map, w = r.w, h = r.h, cx = (w - 1) / 2, cy = (h - 1) / 2;
     const g = new Uint8Array(w * h); // 1 = floor
-    const open = r.type === 'boss' || r.type === 'start' || r.type === 'armory';
+    const open = r.type === 'boss' || r.type === 'start' || r.type === 'armory' || r.type === 'exit';
     if (style === 'crypt') {
       const fillR = (x0, y0, x1, y1) => { for (let y = Math.max(1, y0); y <= Math.min(h - 2, y1); y++) for (let x = Math.max(1, x0); x <= Math.min(w - 2, x1); x++) g[y * w + x] = 1; };
       if (open) fillR(1, 1, w - 2, h - 2);
@@ -162,7 +163,7 @@ const World = {
       return true;
     };
     const put = (x, y) => { if (ok(x, y)) map[y * MW + x] = PILLAR; };
-    if (r.type === 'boss') { const dx = r.mini ? 5 : 6, dy = r.mini ? 3 : 4; for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); return; }
+    if (r.type === 'boss' || r.type === 'exit') { const dx = r.type === 'exit' ? 5 : 6, dy = r.type === 'exit' ? 3 : 4; for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); return; }
     if (style === 'crypt') {
       const hw = (r.w - 1) / 2, hh = (r.h - 1) / 2;
       for (let i = rng.int(2, 4); i > 0; i--) { const dx = rng.int(3, Math.max(3, hw - 2)), dy = rng.int(3, Math.max(3, hh - 2)); for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); }
@@ -173,8 +174,8 @@ const World = {
   },
   planWaves(r, rng) {
     const pool = this.theme.pools[this.level - 1];
-    let budget = 3 + Math.ceil(this.depth * 0.9) + rng.int(0, 2) + (r.w * r.h > 200 ? 2 : 0);
-    const nW = budget >= 8 ? 2 : 1, free = [];
+    let budget = 3 + Math.ceil(this.depth * 0.9) + rng.int(0, 2) + (r.w * r.h > 200 ? 2 : 0) + (r.type === 'exit' ? 5 : 0);
+    const nW = r.type === 'exit' ? 3 : budget >= 8 ? 2 : 1, free = [];
     for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (this.roomId[y * MW + x] === r.id && this.map[y * MW + x] === FLOOR) free.push([x, y]);
     r.waves = [];
     for (let w = 0; w < nW; w++) {
@@ -217,6 +218,7 @@ const World = {
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
+      mana: 100, maxMana: 100, manaIdle: 0, lungeWin: 0, lunge: 0,
     };
   },
 
@@ -339,11 +341,20 @@ const World = {
   updPlayer(p, dt) {
     const inp = Input.read(p.src, p);
     p.inp = inp;
-    if (inp.aim !== null) p.aim = inp.assist ? this.assist(p, inp.aim) : inp.aim;
+    if (inp.autoAim) { const a = this.autoTarget(p); if (a !== null) p.aim = a; }
+    else if (inp.aim !== null) p.aim = inp.assist ? this.assist(p, inp.aim) : inp.aim;
     else if (inp.device !== 'kb' && (inp.mx || inp.my) && !p.charge) p.aim = Math.atan2(inp.my, inp.mx);
-    p.inv -= dt; p.rollCd -= dt; p.slowT -= dt;
+    p.inv -= dt; p.rollCd -= dt; p.slowT -= dt; p.lungeWin -= dt; p.manaIdle += dt;
+    p.mana = Math.min(p.maxMana, p.mana + dt * (p.manaIdle > 0.9 ? 34 : 14));
+    if (p.lunge > 0) {
+      p.lunge -= dt;
+      this.move(p, Math.cos(p.aim) * 520 * dt, Math.sin(p.aim) * 520 * dt);
+      this.part(p.x, p.y, R.range(-20, 20), R.range(-20, 20), 0.3, 3, '#ffd27a', true);
+      if (p.lunge <= 0) this.swing(p, p.lungeW, false, true);
+      return;
+    }
     if (p.roll > 0) {
-      p.roll -= dt;
+      p.roll -= dt; if (p.roll <= 0) p.lungeWin = 0.32;
       const sp = 340 * (p.roll > 0.12 ? 1 : 0.6);
       this.move(p, p.rdx * sp * dt, p.rdy * sp * dt);
       if (R.chance(0.6)) this.part(p.x, p.y, R.range(-20, 20), R.range(-20, 20), 0.35, 3, '#bfe3ff');
@@ -369,7 +380,8 @@ const World = {
     const ready = inp.attack && p.cd <= 0;
     switch (w.type) {
       case 'sword': case 'axe': case 'hammer': case 'spear':
-        if (ready) { this.swing(p, w); p.cd = w.cd / p.st.rate; if (hasQ(w, 'echo')) { p.echo = 0.14; p.echoW = w; } }
+        if (ready && p.lungeWin > 0) { p.lungeWin = 0; p.lunge = 0.13; p.lungeW = w; p.cd = w.cd / p.st.rate; Snd.play('roll'); }
+        else if (ready) { this.swing(p, w); p.cd = w.cd / p.st.rate; if (hasQ(w, 'echo')) { p.echo = 0.14; p.echoW = w; } }
         break;
       case 'bow':
         if (inp.attack && p.cd <= 0) {
@@ -378,9 +390,22 @@ const World = {
         } else if (p.charge > 0) { this.fireBow(p, w); p.charge = 0; p.cd = w.cd / p.st.rate; }
         break;
       case 'crossbow': if (ready) { this.fireCrossbow(p, w); p.cd = w.cd / p.st.rate; } break;
-      case 'wand': case 'staff': if (ready) { this.fireBolt(p, w); p.cd = w.cd / p.st.rate; } break;
+      case 'wand': case 'staff': if (ready) {
+        const cost = WBASE[w.type].mana;
+        if (p.mana >= cost) { p.mana -= cost; p.manaIdle = 0; this.fireBolt(p, w); p.cd = w.cd / p.st.rate; }
+        else { p.cd = 0.25; p.manaFlash = 0.4; Snd.play('fizzle'); }
+      } break;
       case 'spellbook': if (ready) { this.cast(p, w); p.cd = w.cd / p.st.rate; } break;
     }
+  },
+  autoTarget(p) { // touch attack button: face the nearest foe you can see
+    let best = null, bd = 520 * 520;
+    for (const e of this.enemies) {
+      if (e.dead || e.spawnT > 0 || e.bones > 0) continue;
+      const dd = d2(p.x, p.y, e.x, e.y); if (dd < bd && this.los(p.x, p.y, e.x, e.y)) { bd = dd; best = e; }
+    }
+    if (!best) for (const e of this.enemies) { if (e.dead || e.spawnT > 0 || e.bones > 0) continue; const dd = d2(p.x, p.y, e.x, e.y); if (dd < bd) { bd = dd; best = e; } }
+    return best ? Math.atan2(best.y - p.y, best.x - p.x) : null;
   },
   assist(p, a) {
     let best = null, bd = 1e9;
@@ -443,9 +468,10 @@ const World = {
     }
     Render.kick(2);
   },
-  swing(p, w, echo) {
-    const reach = w.reach * p.st.reach, arc = w.arc, a = p.aim, type = w.type, cm = this.critRoll(p, w);
-    const dmg = w.dmg * p.st.dmg * p.st.meleeDmg * (echo ? 0.6 : 1) * cm;
+  swing(p, w, echo, lunge) {
+    const reach = w.reach * p.st.reach * (lunge ? 1.15 : 1), arc = lunge ? Math.max(w.arc, 1.6) : w.arc, a = p.aim, type = w.type, cm = this.critRoll(p, w);
+    const dmg = w.dmg * p.st.dmg * p.st.meleeDmg * (echo ? 0.6 : 1) * (lunge ? 1.6 : 1) * cm;
+    if (lunge) { Render.kick(5); this.burst(p.x + Math.cos(a) * reach * 0.6, p.y + Math.sin(a) * reach * 0.6, 14, '#ffd27a', 200, 0.35); }
     p.swingDir = -p.swingDir;
     const dur = { sword: 0.15, axe: 0.21, hammer: 0.22, spear: 0.12 }[type];
     p.swings.push({ a, arc, reach, t: 0, dur, color: ELEM[w.elem].c, dir: p.swingDir, kind: type });
@@ -460,10 +486,12 @@ const World = {
       else hit = dd <= reach + e.r && (Math.abs(angDiff(a, Math.atan2(ey, ex))) <= arc / 2 || dd < e.r + p.r + 8);
       if (hit) { this.damage(e, dmg, src); any = true; }
     }
-    if (type === 'sword') for (const pr of this.projs) {
+    for (const pr of this.projs) { // every melee swing cuts enemy shots out of the air
       if (pr.owner !== 'e' || pr.dead) continue;
-      const dd = Math.sqrt(d2(p.x, p.y, pr.x, pr.y));
-      if (dd <= reach + pr.r + 4 && Math.abs(angDiff(a, Math.atan2(pr.y - p.y, pr.x - p.x))) <= arc / 2 + 0.25) {
+      const px = pr.x - p.x, py = pr.y - p.y, dd = Math.hypot(px, py);
+      const inArc = type === 'spear' ? (px * ca + py * sa > -4 && px * ca + py * sa < reach + pr.r && Math.abs(-px * sa + py * ca) < pr.r + 14)
+        : dd <= reach + pr.r + 4 && Math.abs(angDiff(a, Math.atan2(py, px))) <= arc / 2 + 0.25;
+      if (inArc) {
         if (p.st.reflect) {
           const sp = Math.hypot(pr.vx, pr.vy) * 1.6, na = Math.atan2(pr.y - p.y, pr.x - p.x);
           Object.assign(pr, { owner: 'p', vx: Math.cos(na) * sp, vy: Math.sin(na) * sp, dmg: dmg * 0.7, color: '#bfe3ff', elem: 'none', hit: new Set(), depth: 1, p, life: 1, pierce: 0, bounce: 0, homing: 1.5, kind: 'bolt' });
@@ -580,7 +608,7 @@ const World = {
   hasSyn(id) { return this.players.some(p => p.syn.includes(id)); },
 
   hurt(p, n = 1) {
-    if (p.inv > 0 || p.roll > 0.03 || p.dead || Game.state !== 'play') return;
+    if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.dead || Game.state !== 'play') return;
     p.hp -= n; p.inv = 1.15;
     Snd.play('hurt'); Render.kick(9); Game.hitstop(0.09); Render.flash = 0.25;
     this.burst(p.x, p.y, 20, '#ff4060', 220, 0.5);
@@ -799,9 +827,10 @@ const World = {
   },
   setDoors(r, shut) { for (const i of r.doors) this.map[i] = shut ? SHUT : DOOR; },
   enterRoom(r) {
-    if (r.type === 'combat' || r.type === 'boss') {
+    if (r.type === 'combat' || r.type === 'boss' || r.type === 'exit') {
       this.locked = true; this.setDoors(r, true); Snd.play('door'); Music.target = 1;
       if (r.type === 'boss') { this.waves = []; this.spawnBoss(r); }
+      else if (r.type === 'exit') { this.waves = r.waves.map(w => w.slice()); this.waveT = 0.3; this.spawnWave(this.waves.shift()); Game.banner('', 'The way down is guarded', 1.6); }
       else { this.waves = r.waves.map(w => w.slice()); this.waveT = 0.3; this.spawnWave(this.waves.shift()); }
     } else {
       r.cleared = true;
@@ -820,6 +849,13 @@ const World = {
     this.hazards = [];
     Snd.play('clear'); Music.target = 0;
     const p = this.players[0]; for (const h of p.hooks.clear) h();
+    if (r.type === 'exit') {
+      const cx = r.mx * T + T / 2, cy = r.my * T + T / 2;
+      this.pickups.push({ kind: 'portal', x: cx, y: cy + T * 2.5, t: 0, last: false });
+      this.pickups.push({ kind: 'chest', x: cx, y: cy - T * 0.5, t: 0, room: r, n: 2 });
+      this.pickups.push({ kind: 'half', x: cx - T * 2, y: cy + T * 1.5, t: 0 });
+      Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, this.depth);
+    }
     if (r.type === 'combat') {
       const rr = RNG(hash(Game.seedNum, this.depth, r.id, 66)), roll = rr();
       const spot = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2);

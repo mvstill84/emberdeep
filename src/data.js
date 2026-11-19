@@ -15,21 +15,21 @@ const RARITY = [
 ];
 // Weapon families. cat: melee | ranged | magic
 const WBASE = {
-  sword: { cat: 'melee', names: ['Blade', 'Sword', 'Saber', 'Longsword', 'Falchion'], dmg: [10, 13], cd: [0.34, 0.44], reach: [46, 58], arc: [110, 140], crit: 0.06, d: 'Balanced. Swats enemy shots out of the air.' },
+  sword: { cat: 'melee', names: ['Blade', 'Sword', 'Saber', 'Longsword', 'Falchion'], dmg: [10, 13], cd: [0.34, 0.44], reach: [46, 58], arc: [110, 140], crit: 0.06, d: 'Balanced and quick.' },
   axe: { cat: 'melee', names: ['Axe', 'Greataxe', 'Hatchet', 'War Axe', 'Bearded Axe'], dmg: [17, 22], cd: [0.58, 0.72], reach: [50, 60], arc: [150, 175], crit: 0.25, d: 'Slow, wide cleave. Crits often.' },
   hammer: { cat: 'melee', names: ['Hammer', 'Warhammer', 'Maul', 'Mace', 'Morningstar'], dmg: [20, 26], cd: [0.75, 0.9], reach: [44, 52], arc: [70, 95], crit: 0.05, d: 'Slowest. Stuns, sends a shockwave, shatters bones.' },
   spear: { cat: 'melee', names: ['Spear', 'Pike', 'Glaive', 'Trident', 'Halberd'], dmg: [9, 12], cd: [0.3, 0.38], reach: [80, 94], arc: [24, 24], crit: 0.08, d: 'Fast, long thrust through everything in a line.' },
   bow: { cat: 'ranged', names: ['Bow', 'Longbow', 'Shortbow', 'Recurve', 'Warbow'], dmg: [12, 16], cd: [0.16, 0.24], charge: [0.45, 0.75], speed: [540, 660], crit: 0.08, d: 'Hold to draw. A full draw pierces.' },
   crossbow: { cat: 'ranged', names: ['Crossbow', 'Arbalest', 'Repeater', 'Heavy Crossbow'], dmg: [20, 26], cd: [0.7, 0.9], speed: [700, 760], crit: 0.1, d: 'Slow reload. Bolts pierce every foe in a line.' },
-  wand: { cat: 'magic', names: ['Wand', 'Rod', 'Switch', 'Baton'], dmg: [3.4, 4.6], cd: [0.085, 0.12], speed: [420, 480], spread: [0.03, 0.08], crit: 0.04, d: 'Fast, weak bolts.' },
-  staff: { cat: 'magic', names: ['Staff', 'Stave', 'Quarterstaff', 'Crook'], dmg: [6.5, 9], cd: [0.2, 0.28], speed: [350, 400], spread: [0.04, 0.1], crit: 0.05, d: 'Steady bolts. Elements hit twice as hard.' },
-  spellbook: { cat: 'magic', names: ['Tome', 'Grimoire', 'Codex', 'Spellbook'], crit: 0.05, d: 'Slow, powerful spells.' },
+  wand: { cat: 'magic', mana: 4, names: ['Wand', 'Rod', 'Switch', 'Baton'], dmg: [3.4, 4.6], cd: [0.085, 0.12], speed: [420, 480], spread: [0.03, 0.08], crit: 0.04, d: 'Fast, weak bolts.' },
+  staff: { cat: 'magic', mana: 9, names: ['Staff', 'Stave', 'Quarterstaff', 'Crook'], dmg: [6.5, 9], cd: [0.2, 0.28], speed: [350, 400], spread: [0.04, 0.1], crit: 0.05, d: 'Steady bolts. Elements hit twice as hard.' },
+  spellbook: { cat: 'magic', names: ['Tome', 'Grimoire', 'Codex', 'Spellbook'], crit: 0.05, d: 'Powerful spells on a cooldown. No mana.' },
 };
 const SPELLS = {
-  fireball: { n: 'Fireball', elem: 'fire', dmg: [30, 40], cd: [1.2, 1.5], d: 'Exploding ball of fire' },
-  chain: { n: 'Chain Lightning', elem: 'storm', dmg: [18, 24], cd: [0.9, 1.1], d: 'Arcs between up to 5 foes' },
-  icestorm: { n: 'Ice Storm', elem: 'frost', dmg: [7, 9], cd: [1.4, 1.7], d: 'Shards rain on an area, chilling' },
-  missiles: { n: 'Magic Missile', elem: 'arcane', dmg: [7, 9], cd: [1.0, 1.2], d: 'Five seeking darts' },
+  fireball: { n: 'Fireball', elem: 'fire', dmg: [36, 46], cd: [2.4, 3.0], d: 'Exploding ball of fire' },
+  chain: { n: 'Chain Lightning', elem: 'storm', dmg: [22, 28], cd: [1.8, 2.2], d: 'Arcs between up to 5 foes' },
+  icestorm: { n: 'Ice Storm', elem: 'frost', dmg: [8, 10], cd: [2.8, 3.4], d: 'Shards rain on an area, chilling' },
+  missiles: { n: 'Magic Missile', elem: 'arcane', dmg: [8, 10], cd: [1.8, 2.2], d: 'Five seeking darts' },
 };
 const QUIRKS = [
   { id: 'twin', n: 'Twin', suf: 'of Pairs', d: 'Fires an extra projectile', t: ['bow', 'crossbow', 'wand', 'staff'] },
@@ -113,7 +113,7 @@ const ITEMS = [
   { id: 'ricochet', n: 'Ricochet Charm', d: 'Shots bounce off walls', c: '#7dffb0', pool: 'base', g: 'ring', apply(p) { p.st.bounce++; } },
   { id: 'haste', n: 'Haste Totem', d: '+22% attack speed', c: '#ffe066', pool: 'base', g: 'bolt', apply(p) { p.st.rate *= 1.22; } },
   { id: 'berserk', n: 'Berserker Band', d: '+30% damage, -1 heart', c: '#ff4040', pool: 'base', g: 'fang', apply(p) { p.st.dmg *= 1.3; p.maxHp = Math.max(2, p.maxHp - 2); p.hp = Math.min(p.hp, p.maxHp); } },
-  { id: 'mirror', n: 'Mirror Ward', d: 'Swords reflect enemy shots back', c: '#bfe3ff', pool: 'base', g: 'shield', apply(p) { p.st.reflect = true; } },
+  { id: 'mirror', n: 'Mirror Ward', d: 'Melee swings reflect enemy shots back', c: '#bfe3ff', pool: 'base', g: 'shield', apply(p) { p.st.reflect = true; } },
   { id: 'hungry', n: 'Hungry Blade', d: 'Every 15 kills, heal half a heart', c: '#ff7aa8', pool: 'base', g: 'fang', apply(p) { p.hooks.kill.push(() => { p.hungry = (p.hungry || 0) + 1; if (p.hungry >= 15) { p.hungry = 0; World.heal(1); } }); } },
   { id: 'reach', n: 'Giant\'s Grip', d: 'Melee reaches farther and hits harder', c: '#d9a066', pool: 'base', g: 'sword', apply(p) { p.st.reach *= 1.3; p.st.meleeDmg *= 1.2; } },
   { id: 'eagle', n: 'Eagle Eye', d: '+12% crit chance, crits hit harder', c: '#ffd27a', pool: 'base', g: 'eye', apply(p) { p.st.crit += 0.12; p.st.critMult += 0.5; } },

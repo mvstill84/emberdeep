@@ -1,8 +1,13 @@
 // ===== HUD =====
 const HUD = {
+  u: 1,
   draw(c, dt) {
-    const s = Render.dpr, W = innerWidth, H = innerHeight, p = World.players[0];
+    const p = World.players[0];
+    c.setTransform(Render.dpr, 0, 0, Render.dpr, 0, 0);
+    if (Input.last === 'touch') this.touch(c, innerWidth, innerHeight);
+    const u = this.u = clamp(Math.min(innerWidth, innerHeight) / 620, 0.6, 1), s = Render.dpr * u, W = innerWidth / u, H = innerHeight / u;
     c.setTransform(s, 0, 0, s, 0, 0);
+    p.manaFlash = (p.manaFlash || 0) - dt;
     c.textBaseline = 'alphabetic';
     const pad = 16, font = (n, w = 700) => `${w} ${n}px ui-rounded, "SF Pro Rounded", system-ui, sans-serif`;
     // hearts
@@ -20,9 +25,9 @@ const HUD = {
     // items
     p.items.forEach((id, i) => { const it = ITEMS.find(x => x.id === id); itemIcon(c, it, pad + 11 + (i % 10) * 24, pad + 66 + Math.floor(i / 10) * 24, 10); });
     // weapons
-    const bx = pad, by = H - pad - 64;
+    const tch = Input.last === 'touch', bx = tch ? (W - 250) / 2 : pad, by = tch ? pad - 4 : H - pad - 64; // on touch, keep thumbs' corners clear
     p.weapons.forEach((w, i) => {
-      const active = i === p.wi, y = active ? by : by - 46, h = active ? 62 : 40, ww = active ? 250 : 210;
+      const active = i === p.wi, y = active ? by : tch ? by + 66 : by - 46, h = active ? 62 : 40, ww = active ? 250 : 210;
       c.fillStyle = active ? 'rgba(20,14,38,0.85)' : 'rgba(20,14,38,0.6)'; roundRect(c, bx, y, ww, h, 10); c.fill();
       c.strokeStyle = active ? RARITY[w.rarity].c : 'rgba(120,100,180,0.5)'; c.lineWidth = active ? 2 : 1; c.stroke();
       weaponIcon(c, w, bx + 26, y + h / 2, active ? 30 : 22);
@@ -31,7 +36,10 @@ const HUD = {
       if (active) {
         c.fillStyle = 'rgba(233,228,255,0.65)'; c.font = font(12, 600);
         c.fillText(weaponLine(w), bx + 50, y + 45);
-        if (w.type === 'bow' && p.charge > 0) { c.fillStyle = 'rgba(255,255,255,0.15)'; c.fillRect(bx + 50, y + 51, ww - 64, 4); c.fillStyle = p.charge >= 1 ? '#fff' : ELEM[w.elem].c; c.fillRect(bx + 50, y + 51, (ww - 64) * p.charge, 4); }
+        const bar = (f, col) => { c.fillStyle = 'rgba(255,255,255,0.15)'; c.fillRect(bx + 50, y + 51, ww - 64, 5); c.fillStyle = col; c.fillRect(bx + 50, y + 51, (ww - 64) * clamp(f, 0, 1), 5); };
+        if (w.type === 'bow' && p.charge > 0) bar(p.charge, p.charge >= 1 ? '#fff' : ELEM[w.elem].c);
+        if (w.type === 'wand' || w.type === 'staff') bar(p.mana / p.maxMana, p.manaFlash > 0 ? '#ff4d6d' : '#4fa3ff');
+        if (w.type === 'spellbook') { const f = 1 - clamp(p.cd / (w.cd / p.st.rate), 0, 1); bar(f, f >= 1 ? '#ffffff' : ELEM[w.elem].c); }
       }
     });
     if (p.weapons.length > 1 && Input.last !== 'touch') { c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', bx + 218, by - 20); }
@@ -70,10 +78,9 @@ const HUD = {
       if (bn.sub) { c.font = font(16, 600); c.fillStyle = '#e9e4ff'; c.fillText(bn.sub, W / 2, H * 0.24 + (bn.title ? 30 : 0)); }
       c.globalAlpha = 1;
     }
-    if (Input.last === 'touch') this.touch(c, W, H);
   },
   minimap(c, W, pad, font) {
-    const m = 15, tb = Input.touchButtons().find(b => b.id === 'pause'), ox = W - pad - GRID * m - (Input.last === 'touch' ? tb.r * 2 + 8 : 0), oy = pad;
+    const m = 15, tb = Input.touchButtons().find(b => b.id === 'pause'), ox = W - pad - GRID * m - (Input.last === 'touch' ? (tb.r * 2 + 10) / this.u : 0), oy = pad;
     c.fillStyle = 'rgba(10,6,20,0.55)'; roundRect(c, ox - 6, oy - 6, GRID * m + 12, GRID * m + 12, 8); c.fill();
     const tint = World.theme.tint;
     c.strokeStyle = hexA(tint, 0.5); c.lineWidth = 2;
@@ -84,7 +91,8 @@ const HUD = {
       c.fillStyle = r === World.room ? '#ffe2b0' : r.visited ? hexA(tint, 0.6) : 'rgba(80,70,120,0.6)';
       c.fillRect(x, y, s, s);
       if (r.type === 'boss') { c.fillStyle = '#ff3a5a'; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3, 0, TAU); c.fill(); }
-      if (r.type === 'treasure') { c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3, 0, TAU); c.fill(); }
+      if (r.type === 'exit') { c.strokeStyle = '#7fd8ff'; c.lineWidth = 1.5; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3.5, 0, TAU); c.stroke(); }
+      if (r.type === 'armory') { c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3, 0, TAU); c.fill(); }
     }
     c.textAlign = 'right'; c.fillStyle = 'rgba(233,228,255,0.6)'; c.font = font(12, 700);
     c.fillText(`${levelLabel(World.world, World.level)} · ${Game.seed}`, ox + GRID * m + 6, oy + GRID * m + 22);
@@ -97,12 +105,16 @@ const HUD = {
       c.strokeStyle = `rgba(233,228,255,${st ? 0.35 : 0.12})`; c.lineWidth = 2; c.beginPath(); c.arc(x, y, max, 0, TAU); c.stroke();
       if (st) { const v = Input.stickVec(st, max); c.fillStyle = 'rgba(255,200,140,0.45)'; c.beginPath(); c.arc(x + v.x * max, y + v.y * max, max * 0.42, 0, TAU); c.fill(); }
     };
-    stick(Input.sticks.L, W * 0.16, H * 0.6); stick(Input.sticks.R, W * 0.62, H * 0.62);
+    stick(Input.sticks.L, W * 0.16, H * 0.62); if (Input.sticks.R) stick(Input.sticks.R);
+    const p = World.players[0], w = p.weapons[p.wi];
     for (const b of Input.touchButtons()) {
       if (b.id === 'use' && !World.near) continue;
-      if (b.id === 'swap' && World.players[0].weapons.length < 2) continue;
-      c.fillStyle = b.id === 'use' ? 'rgba(255,176,87,0.35)' : 'rgba(40,28,80,0.55)'; c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill();
-      c.strokeStyle = 'rgba(233,228,255,0.4)'; c.lineWidth = 1.5; c.stroke();
+      if (b.id === 'swap' && p.weapons.length < 2) continue;
+      const held = b.id === 'attack' && Input.atk !== null;
+      c.fillStyle = b.id === 'use' ? 'rgba(255,176,87,0.35)' : b.id === 'attack' ? (held ? 'rgba(255,122,42,0.45)' : 'rgba(255,122,42,0.22)') : 'rgba(40,28,80,0.55)';
+      c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill();
+      c.strokeStyle = b.id === 'attack' ? 'rgba(255,200,140,0.7)' : 'rgba(233,228,255,0.4)'; c.lineWidth = b.id === 'attack' ? 2.5 : 1.5; c.stroke();
+      if (b.id === 'attack') { weaponIcon(c, w, b.x, b.y, b.r * 1.0, -0.8); continue; }
       c.fillStyle = '#f4eeff'; c.textAlign = 'center'; c.font = `800 ${Math.round(b.r * 0.42)}px ui-rounded, system-ui, sans-serif`;
       c.fillText({ roll: 'ROLL', swap: 'SWAP', use: 'TAKE', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
     }
@@ -122,7 +134,7 @@ const Game = {
   hitstop(t) { this.hs = Math.max(this.hs, t); },
   banner(title, sub, dur = 2) { this.bannerData = { title, sub, dur, t: 0 }; },
   newRun(seedStr) {
-    Snd.init();
+    Snd.init(); Screen.goFull();
     this.seed = normSeed(seedStr) || randomSeed();
     this.seedNum = strHash(this.seed);
     const sec = SECRETS[this.seedNum];
@@ -165,6 +177,7 @@ const Game = {
   frame(ts) {
     const dt = Math.min(0.05, (ts - (this.last || ts)) / 1000); this.last = ts;
     if (Input.pressed.has('escape') || Input.pressed.has('p')) this.togglePause();
+    if (this.state === 'play' && Screen.portrait()) this.togglePause();
     if (Input.pressed.has('m')) Snd.setMuted(!Meta.data.muted);
     let rdt = 0;
     if (this.state === 'play') {
@@ -191,11 +204,11 @@ const Menu = {
     c.globalCompositeOperation = 'source-over';
   },
   html(h) { this.el.innerHTML = `<div class="panel">${h}</div>`; this.el.classList.remove('hidden'); },
-  on(id, fn) { const b = document.getElementById(id); if (b) b.onclick = () => { Snd.init(); Snd.play('ui'); fn(); }; },
+  on(id, fn) { const b = document.getElementById(id); if (b) b.onclick = () => { Snd.init(); Screen.goFull(); Snd.play('ui'); fn(); }; },
   show(name) {
     const M = Meta.data, ctrl = matchMedia('(pointer:coarse)').matches
-      ? 'Left thumb moves. Right thumb aims and attacks (hold to draw a bow, let go to fire).'
-      : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · Esc pause · M mute';
+      ? 'Left thumb moves. Hold the big button to attack the nearest foe, or drag on the right side to aim by hand. Hold to draw a bow, let go to fire. After a roll, attack right away to lunge.'
+      : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
     if (name === 'title') {
       Game.state = 'menu';
       this.html(`<h1>EMBERDEEP</h1><div class="sub">A tiny procedural dungeon. Every seed is a different descent.</div>
@@ -203,7 +216,7 @@ const Menu = {
         <button class="btn" id="b-seed">Enter a Seed</button>
         <div class="row"><button class="btn" id="b-saved">Saved Seeds</button><button class="btn" id="b-sanct">Sanctum · <span class="ember">${M.embers}</span></button></div>
         <button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button>
-        <div class="hint">${ctrl}<br>Rolling makes you untouchable. Swords swat shots out of the air.</div>`);
+        <div class="hint">${ctrl}</div>`);
       this.on('b-new', () => Game.newRun());
       this.on('b-seed', () => this.show('seed'));
       this.on('b-saved', () => this.show('saved'));

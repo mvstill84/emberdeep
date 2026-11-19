@@ -44,6 +44,24 @@ function hexA(hex, a) {
   return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
 }
 
+// ===== Phones: fullscreen + landscape lock (Android Chrome; iPhone needs Add to Home Screen) =====
+const Screen = {
+  touch: matchMedia('(pointer:coarse)').matches,
+  goFull() {
+    if (!this.touch) return;
+    const el = document.documentElement;
+    try {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        const p = el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen && el.webkitRequestFullscreen();
+        if (p && p.then) p.then(() => this.lock()).catch(() => {});
+        else this.lock();
+      } else this.lock();
+    } catch (e) { }
+  },
+  lock() { try { const o = screen.orientation; if (o && o.lock) o.lock('landscape').catch(() => {}); } catch (e) { } },
+  portrait() { return this.touch && innerHeight > innerWidth; },
+};
+
 // ===== Persistent meta (embers, unlocks, saved seeds, secrets) =====
 const SAVE_KEY = 'emberdeep.v1';
 const Meta = {
@@ -63,6 +81,7 @@ const Input = {
   last: 'kb', // 'kb' | 'touch' | 'pad'
   sticks: { L: null, R: null }, // touch sticks {id, ox, oy, x, y}
   tbtn: { roll: false, swap: false, use: false }, // touch button presses this frame
+  atk: null, // pointer id holding the touch attack button
   padPrev: [],
   init(canvas) {
     addEventListener('keydown', e => {
@@ -96,13 +115,13 @@ const Input = {
   },
   // Touch layout: buttons bottom-right, left half = move stick, right half = aim/attack stick
   touchButtons() {
-    const w = innerWidth, h = innerHeight, s = Math.min(w, h);
-    const r = s * 0.07;
+    const w = innerWidth, h = innerHeight, s = Math.min(w, h), A = s * 0.115;
     return [
-      { id: 'roll', x: w - r * 1.6, y: h - r * 4.1, r },
-      { id: 'swap', x: w - r * 3.9, y: h - r * 4.7, r: r * 0.8 },
-      { id: 'use', x: w - r * 1.4, y: h - r * 6.6, r: r * 0.8 },
-      { id: 'pause', x: w - r * 0.9, y: r * 0.9 + 6, r: r * 0.6 },
+      { id: 'attack', x: w - A * 1.35, y: h - A * 1.35, r: A },
+      { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.62 },
+      { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.55 },
+      { id: 'use', x: w - A * 3.05, y: h - A * 2.75, r: A * 0.6 },
+      { id: 'pause', x: w - s * 0.06, y: s * 0.06 + 4, r: s * 0.042 },
     ];
   },
   touchDown(e) {
@@ -110,7 +129,7 @@ const Input = {
     const x = e.clientX, y = e.clientY;
     for (const b of this.touchButtons()) {
       if (d2(x, y, b.x, b.y) < (b.r * 1.15) ** 2) {
-        if (b.id === 'pause') Game.togglePause(); else this.tbtn[b.id] = true;
+        if (b.id === 'pause') Game.togglePause(); else if (b.id === 'attack') this.atk = e.pointerId; else this.tbtn[b.id] = true;
         return;
       }
     }
@@ -121,6 +140,7 @@ const Input = {
     for (const s of ['L', 'R']) { const st = this.sticks[s]; if (st && st.id === e.pointerId) { st.x = e.clientX; st.y = e.clientY; } }
   },
   touchUp(e) {
+    if (this.atk === e.pointerId) this.atk = null;
     for (const s of ['L', 'R']) { const st = this.sticks[s]; if (st && st.id === e.pointerId) this.sticks[s] = null; }
   },
   stickVec(st, max) {
@@ -156,7 +176,8 @@ const Input = {
       const max = Math.min(innerWidth, innerHeight) * 0.09;
       const L = this.stickVec(this.sticks.L, max), Rv = this.stickVec(this.sticks.R, max);
       out.mx = L.x; out.my = L.y;
-      if (Rv.m > 0.25) { out.aim = Math.atan2(Rv.y, Rv.x); out.attack = true; out.assist = true; }
+      if (Rv.m > 0.15) { out.aim = Math.atan2(Rv.y, Rv.x); out.attack = true; out.assist = true; }
+      else if (this.atk !== null) { out.attack = true; out.autoAim = true; }
       out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use;
     } else {
       const p = this.pads()[+dev.slice(3)] || null;
@@ -248,6 +269,7 @@ const Snd = {
       case 'whoosh': this.noise(0.35, 0.22, 500, 1, 0, 3); this.tone(200, 0.3, 'sawtooth', 0.05, 0.5); break;
       case 'roar': this.tone(90 * r, 0.45, 'sawtooth', 0.14, 0.6); this.noise(0.4, 0.18, 300, 0.8, 0, 0.6); break;
       case 'blink': this.tone(1200 * r, 0.15, 'sine', 0.07, 2); break;
+      case 'fizzle': this.noise(0.12, 0.08, 2500, 2, 0, 0.4); break;
     }
   },
 };

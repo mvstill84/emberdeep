@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Emberdeep">
 <meta name="theme-color" content="#0b0816">
 <link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.webmanifest">
 <title>Emberdeep</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -37,11 +38,16 @@ input.seed:focus{border-color:#ffb057}
 .stats span:nth-child(even){text-align:right;color:#ffe2b0}
 .hint{font-size:13px;opacity:.55;margin-top:14px;line-height:1.5}
 .secret{color:#7fffd4}
+#rotate{display:none;position:fixed;inset:0;z-index:20;background:#0b0816;color:#e9e4ff;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px;gap:14px}
+#rotate .ph{width:46px;height:78px;border:3px solid #ffb057;border-radius:9px;animation:rot 2s ease-in-out infinite}
+@keyframes rot{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(90deg)}}
+@media (orientation:portrait) and (pointer:coarse){#rotate{display:flex}}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="menu"></div>
+<div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 /*__JS__*/
 </script>

@@ -6,7 +6,8 @@ const Render = {
     const fit = () => {
       this.dpr = Math.min(window.devicePixelRatio || 1, 2);
       this.W = this.cv.width = Math.round(innerWidth * this.dpr); this.H = this.cv.height = Math.round(innerHeight * this.dpr);
-      this.z = Math.min(this.H / (16.5 * T), this.W / (21 * T));
+      const small = Math.min(innerWidth, innerHeight) < 520;
+      this.z = Math.min(this.H / ((small ? 12.5 : 16.5) * T), this.W / ((small ? 17 : 21) * T));
     };
     addEventListener('resize', fit); fit();
   },
