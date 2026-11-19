@@ -114,8 +114,15 @@ const Input = {
     addEventListener('pointerup', up); addEventListener('pointercancel', up);
   },
   // Touch layout: buttons bottom-right, left half = move stick, right half = aim/attack stick
+  // Netlify's free-tier badge sits in the bottom-right corner and swallows taps; keep our buttons above it
+  badgeH() {
+    const now = performance.now(); if (now - (this._bt || 0) < 1000) return this._bh || 0; this._bt = now;
+    const f = document.getElementById('nl-badge-frame'); let h = 0;
+    if (f) { const r = f.getBoundingClientRect(); if (r.width && r.height && getComputedStyle(f).display !== 'none') h = innerHeight - r.top; }
+    return (this._bh = clamp(h, 0, 90));
+  },
   touchButtons() {
-    const w = innerWidth, h = innerHeight, s = Math.min(w, h), A = s * 0.115;
+    const w = innerWidth, s = Math.min(w, innerHeight), A = s * 0.115, h = innerHeight - this.badgeH();
     return [
       { id: 'attack', x: w - A * 1.35, y: h - A * 1.35, r: A },
       { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.62 },

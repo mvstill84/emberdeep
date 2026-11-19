@@ -61,8 +61,10 @@ function rollRarity(rng, depth, src = 'room') {
   for (let i = 0; i < 5; i++) { r -= w[i]; if (r <= 0) return i; }
   return 0;
 }
+// Drops lean 60% toward your class's weapon family
 function pickWeaponType(rng) {
-  const cat = rng.pick(['melee', 'ranged', 'magic']);
+  const mine = CLASSES[Game.cls || 'fighter'].cat, others = ['melee', 'ranged', 'magic'].filter(c => c !== mine);
+  const cat = rng.chance(0.6) ? mine : rng.pick(others);
   return rng.pick(Object.keys(WBASE).filter(k => WBASE[k].cat === cat));
 }
 
@@ -194,7 +196,28 @@ const WORLD_COUNT = 3;
 const levelLabel = (w, l) => `${w}-${l}`;
 
 // ===== Sanctum unlocks (permanent). A full run (~250 embers) buys about one. =====
+// ===== Classes =====
+const CLASSES = {
+  fighter: {
+    n: 'Fighter', c: '#ff9a5a', cat: 'melee', hp: 8, cost: 0, move: 'Roll', mana: 0.5,
+    perk: '+20% melee damage', moveD: 'Roll, then attack to lunge',
+    kit: [{ type: 'sword', name: 'Worn Blade' }, { type: 'bow', name: 'Hunter\'s Bow' }],
+  },
+  ranger: {
+    n: 'Ranger', c: '#8dff7a', cat: 'ranged', hp: 6, cost: 220, move: 'Roll', mana: 0.5,
+    perk: '+20% ranged damage, bows draw 20% faster', moveD: 'Rolls scatter caltrops that hurt and slow foes',
+    kit: [{ type: 'bow', name: 'Hunter\'s Bow' }, { type: 'spear', name: 'Ash Spear' }],
+  },
+  mage: {
+    n: 'Mage', c: '#b58bff', cat: 'magic', hp: 6, cost: 220, move: 'Blink', mana: 1,
+    perk: 'Full mana pool (other classes get half)', moveD: 'Blink a short distance instead of rolling',
+    kit: [{ type: 'wand', name: 'Apprentice Wand' }, { type: 'spellbook', spell: 'missiles', name: 'Primer of Magic Missile' }],
+  },
+};
+
 const UNLOCKS = [
+  { id: 'ranger', n: 'Ranger', d: 'Unlock the Ranger class', cost: 220 },
+  { id: 'mage', n: 'Mage', d: 'Unlock the Mage class', cost: 220 },
   { id: 'kit', n: 'Field Kit', d: 'Start runs with Uncommon weapons', cost: 140 },
   { id: 'heart1', n: 'Sturdy Heart', d: 'Start every run with +1 heart', cost: 180 },
   { id: 'codexE', n: 'Elemental Codex', d: 'Adds Kindling, Frost Lens and Storm Coil to the item pool', cost: 220 },

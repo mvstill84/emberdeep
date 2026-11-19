@@ -25,9 +25,10 @@ const HUD = {
     // items
     p.items.forEach((id, i) => { const it = ITEMS.find(x => x.id === id); itemIcon(c, it, pad + 11 + (i % 10) * 24, pad + 66 + Math.floor(i / 10) * 24, 10); });
     // weapons
-    const tch = Input.last === 'touch', bx = tch ? (W - 250) / 2 : pad, by = tch ? pad - 4 : H - pad - 64; // on touch, keep thumbs' corners clear
+    const tch = Input.last === 'touch', bx = tch ? (W - 300) / 2 : pad, by = tch ? pad - 4 : H - pad - 64; // on touch, keep thumbs' corners clear
     p.weapons.forEach((w, i) => {
-      const active = i === p.wi, y = active ? by : tch ? by + 66 : by - 46, h = active ? 62 : 40, ww = active ? 250 : 210;
+      const active = i === p.wi; c.font = font(active ? 15 : 13, 800);
+      const y = active ? by : tch ? by + 66 : by - 46, h = active ? 62 : 40, ww = clamp(c.measureText(w.name).width + 70, active ? 250 : 210, Math.min(420, W - 40));
       c.fillStyle = active ? 'rgba(20,14,38,0.85)' : 'rgba(20,14,38,0.6)'; roundRect(c, bx, y, ww, h, 10); c.fill();
       c.strokeStyle = active ? RARITY[w.rarity].c : 'rgba(120,100,180,0.5)'; c.lineWidth = active ? 2 : 1; c.stroke();
       weaponIcon(c, w, bx + 26, y + h / 2, active ? 30 : 22);
@@ -88,7 +89,7 @@ const HUD = {
   // side-by-side: what you hold vs. what's on the floor
   compare(c, W, H, p, nw, key, font) {
     const cur = p.weapons.length < 2 ? null : p.weapons[p.wi];
-    const cw = Math.min(250, (W - 50) / 2), gap = 14, y = H * 0.5, x0 = W / 2 - cw - gap / 2, x1 = W / 2 + gap / 2;
+    const cw = Math.min(260, (W - 50) / 2), gap = 14, y0 = H * 0.5, y = y0, x0 = W / 2 - cw - gap / 2, x1 = W / 2 + gap / 2;
     const stats = w => {
       const rows = [[w.type === 'spellbook' ? 'Spell' : 'Damage', w.type === 'spellbook' ? SPELLS[w.spell].n : Math.round(w.dmg), w.dmg]];
       rows.push([w.type === 'bow' ? 'Draw' : w.type === 'spellbook' ? 'Cooldown' : 'Speed', w.type === 'bow' ? w.charge.toFixed(2) + 's' : w.type === 'spellbook' ? w.cd.toFixed(1) + 's' : (1 / w.cd).toFixed(1) + '/s', w.type === 'bow' ? -w.charge : w.type === 'spellbook' ? -w.cd : 1 / w.cd]);
@@ -96,16 +97,20 @@ const HUD = {
       rows.push(['Element', w.elem === 'none' ? '-' : w.elem]);
       return rows;
     };
-    const card = (w, x, label, other) => {
+    const card = (w, x, label, other, y = y0) => {
       const lines = w ? w.quirks.map(q => QUIRKS.find(z => z.id === q).d) : [];
       if (w && !lines.length) lines.push(WBASE[w.type].d);
-      const h = 132 + lines.length * 16;
+      c.font = font(14, 800); const extra = w ? (wrapText(c, w.name, cw - 60, 2).length - 1) * 16 : 0;
+      const h = 132 + lines.length * 16 + extra;
       c.fillStyle = 'rgba(14,9,28,0.92)'; roundRect(c, x, y, cw, h, 10); c.fill();
       c.strokeStyle = w ? RARITY[w.rarity].c : '#555'; c.lineWidth = label === 'NEW' ? 2 : 1.2; c.stroke();
       c.textAlign = 'left'; c.fillStyle = 'rgba(233,228,255,0.5)'; c.font = font(10, 800); c.fillText(label, x + 12, y + 16);
       if (!w) { c.fillStyle = '#aaa'; c.font = font(13, 600); c.fillText('Empty slot', x + 12, y + 40); return h; }
       weaponIcon(c, w, x + cw - 26, y + 26, 26, -0.8);
-      c.fillStyle = RARITY[w.rarity].c; c.font = font(14, 800); c.fillText(fitText(c, w.name, cw - 60), x + 12, y + 36);
+      c.fillStyle = RARITY[w.rarity].c; c.font = font(14, 800);
+      const nl = wrapText(c, w.name, cw - 60, 2);
+      nl.forEach((t, i) => c.fillText(t, x + 12, y + 36 + i * 16));
+      const yo = (nl.length - 1) * 16; y += yo;
       c.fillStyle = 'rgba(233,228,255,0.6)'; c.font = font(11, 600); c.fillText(`${RARITY[w.rarity].n} ${w.type}`, x + 12, y + 52);
       const mine = stats(w), theirs = other ? stats(other) : null;
       mine.forEach((r, i) => {
@@ -130,7 +135,7 @@ const HUD = {
   enemyBox(c, W, H, pad, font) { // name of the last thing you hit
     const lh = World.lastHit; if (!lh || lh.t <= 0) return;
     const e = lh.e, a = clamp(lh.t / 0.5, 0, 1), bw = 170, tch = Input.last === 'touch';
-    const x = tch ? pad : W - pad - bw, y = tch ? pad + 92 : H - pad - 48;
+    const x = tch ? pad : (W - bw) / 2, y = tch ? pad + 92 : pad;
     c.globalAlpha = a;
     c.fillStyle = 'rgba(14,9,28,0.75)'; roundRect(c, x, y, bw, 40, 8); c.fill();
     c.textAlign = 'left'; c.fillStyle = e.D.c; c.font = font(12, 800); c.fillText(e.D.n || '', x + 10, y + 16);
@@ -178,10 +183,17 @@ const HUD = {
       c.strokeStyle = b.id === 'attack' ? 'rgba(255,200,140,0.7)' : 'rgba(233,228,255,0.4)'; c.lineWidth = b.id === 'attack' ? 2.5 : 1.5; c.stroke();
       if (b.id === 'attack') { weaponIcon(c, w, b.x, b.y, b.r * 1.0, -0.8); continue; }
       c.fillStyle = '#f4eeff'; c.textAlign = 'center'; c.font = `800 ${Math.round(b.r * 0.42)}px ui-rounded, system-ui, sans-serif`;
-      c.fillText({ roll: 'ROLL', swap: 'SWAP', use: 'USE', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
+      c.fillText({ roll: p.cls === 'mage' ? 'BLINK' : 'ROLL', swap: 'SWAP', use: 'USE', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
     }
   },
 };
+function wrapText(c, s, w, max) {
+  const words = s.split(' '), out = []; let line = '';
+  for (const wd of words) { const t = line ? line + ' ' + wd : wd; if (c.measureText(t).width > w && line) { out.push(line); line = wd; } else line = t; }
+  if (line) out.push(line);
+  if (out.length > max) { const rest = out.slice(max - 1).join(' '); out.length = max - 1; out.push(fitText(c, rest, w)); }
+  return out;
+}
 function fitText(c, s, w) { if (c.measureText(s).width <= w) return s; while (s.length > 3 && c.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
 function weaponLine(w) {
   const dmg = Math.round(w.dmg), spd = (1 / w.cd).toFixed(1);
@@ -192,11 +204,14 @@ function weaponLine(w) {
 
 // ===== Game: state, runs, menus =====
 const Game = {
-  state: 'menu', seed: '', seedNum: 0, mods: {}, secret: null, hs: 0, runEmbers: 0, runTime: 0, bannerData: null, deadT: 0,
+  state: 'menu', seed: '', seedNum: 0, mods: {}, cls: 'fighter', secret: null, hs: 0, runEmbers: 0, runTime: 0, bannerData: null, deadT: 0,
   hitstop(t) { this.hs = Math.max(this.hs, t); },
   banner(title, sub, dur = 2) { this.bannerData = { title, sub, dur, t: 0 }; },
-  newRun(seedStr) {
+  newRun(seedStr, cls) {
     Snd.init(); Screen.goFull();
+    this.cls = cls || Meta.data.lastClass || 'fighter';
+    if (this.cls !== 'fighter' && !Meta.has(this.cls)) this.cls = 'fighter';
+    Meta.data.lastClass = this.cls;
     this.seed = normSeed(seedStr) || randomSeed();
     this.seedNum = strHash(this.seed);
     const sec = SECRETS[this.seedNum];
@@ -237,6 +252,11 @@ const Game = {
     Meta.data.seeds = list.slice(0, 40); Meta.save();
   },
   frame(ts) {
+    try { this.step(ts); } catch (err) { console.error(err); }
+    Input.endFrame();
+    requestAnimationFrame(t => this.frame(t));
+  },
+  step(ts) {
     const dt = Math.min(0.05, (ts - (this.last || ts)) / 1000); this.last = ts;
     if (Input.pressed.has('escape') || Input.pressed.has('p')) this.togglePause();
     if (this.state === 'play' && Screen.portrait()) this.togglePause();
@@ -249,8 +269,6 @@ const Game = {
       if (this.deadT > 0) { this.deadT -= dt; if (this.deadT <= 0) this.end(false); }
     }
     if (World.map) Render.draw(rdt); else Menu.drawBg(dt);
-    Input.endFrame();
-    requestAnimationFrame(t => this.frame(t));
   },
 };
 
@@ -267,7 +285,7 @@ const Menu = {
   },
   html(h) { this.el.innerHTML = `<div class="panel">${h}</div>`; this.el.classList.remove('hidden'); },
   on(id, fn) { const b = document.getElementById(id); if (b) b.onclick = () => { Snd.init(); Screen.goFull(); Snd.play('ui'); fn(); }; },
-  show(name) {
+  show(name, arg) {
     const M = Meta.data, ctrl = matchMedia('(pointer:coarse)').matches
       ? 'Left thumb moves. Hold the big button to attack the nearest foe, or drag on the right side to aim by hand. Hold to draw a bow, let go to fire. After a roll, attack right away to lunge.'
       : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
@@ -279,7 +297,7 @@ const Menu = {
         <div class="row"><button class="btn" id="b-saved">Saved Seeds</button><button class="btn" id="b-sanct">Sanctum · <span class="ember">${M.embers}</span></button></div>
         <button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button>
         <div class="hint">${ctrl}</div>`);
-      this.on('b-new', () => Game.newRun());
+      this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
       this.on('b-saved', () => this.show('saved'));
       this.on('b-sanct', () => this.show('sanctum'));
@@ -289,13 +307,27 @@ const Menu = {
         <input class="seed" id="seedin" maxlength="16" placeholder="${randomSeed()}" autocomplete="off" autocapitalize="characters" spellcheck="false">
         <button class="btn" id="b-go">Descend</button><button class="btn small" id="b-back">Back</button>`);
       const inp = document.getElementById('seedin'); setTimeout(() => inp.focus(), 50);
-      inp.onkeydown = e => { if (e.key === 'Enter') Game.newRun(inp.value || inp.placeholder); };
-      this.on('b-go', () => Game.newRun(inp.value || inp.placeholder));
+      inp.onkeydown = e => { if (e.key === 'Enter') this.show('class', inp.value || inp.placeholder); };
+      this.on('b-go', () => this.show('class', inp.value || inp.placeholder));
+      this.on('b-back', () => this.show('title'));
+    } else if (name === 'class') {
+      const seed = arg;
+      const cards = Object.entries(CLASSES).map(([id, C]) => {
+        const open = !C.cost || Meta.has(id), hearts = '♥'.repeat(C.hp / 2);
+        const kit = C.kit.map(k => k.name).join(' + ');
+        const btn = open ? `<button class="btn" id="cls-${id}">Play</button>` : `<button class="btn" id="buy-${id}" ${M.embers < C.cost ? 'disabled' : ''}>${C.cost} ◆</button>`;
+        return `<div class="card" style="${open ? '' : 'opacity:.75'}"><div class="grow"><b style="color:${C.c}">${C.n}</b> <span style="color:#ff5470">${hearts}</span>${open ? '' : ' <small style="display:inline">· locked</small>'}<small>${kit}</small><small>${C.perk}</small><small>${C.move}: ${C.moveD}</small></div>${btn}</div>`;
+      }).join('');
+      this.html(`<h2>Choose your class</h2><div class="sub">${seed ? 'Seed <b>' + normSeed(seed) + '</b> · ' : ''}You carry <span class="ember">${M.embers} embers</span></div><div class="list">${cards}</div><button class="btn small" id="b-back">Back</button>`);
+      for (const id of Object.keys(CLASSES)) {
+        this.on('cls-' + id, () => Game.newRun(seed, id));
+        this.on('buy-' + id, () => { const C = CLASSES[id]; if (M.embers >= C.cost) { M.embers -= C.cost; M.unlocks[id] = 1; Meta.save(); Snd.play('item'); this.show('class', seed); } });
+      }
       this.on('b-back', () => this.show('title'));
     } else if (name === 'saved') {
       const rows = M.seeds.map((s, i) => `<div class="card"><div class="grow"><b>${s.seed}</b>${s.secret ? ` <span class="secret">· ${s.secret}</span>` : ''}<small>${s.won ? 'Escaped' : 'Reached ' + (s.level || 'floor ' + s.floor)} · ${s.date}</small></div><button class="btn" id="play-${i}">Play</button><button class="btn" id="del-${i}">✕</button></div>`).join('');
       this.html(`<h2>Saved Seeds</h2><div class="list">${rows || '<div class="sub">No saved seeds yet. Save one from the pause menu or after a run.</div>'}</div><button class="btn small" id="b-back">Back</button>`);
-      M.seeds.forEach((s, i) => { this.on('play-' + i, () => Game.newRun(s.seed)); this.on('del-' + i, () => { M.seeds.splice(i, 1); Meta.save(); this.show('saved'); }); });
+      M.seeds.forEach((s, i) => { this.on('play-' + i, () => this.show('class', s.seed)); this.on('del-' + i, () => { M.seeds.splice(i, 1); Meta.save(); this.show('saved'); }); });
       this.on('b-back', () => this.show('title'));
     } else if (name === 'sanctum') {
       const rows = UNLOCKS.map(u => {
@@ -328,13 +360,13 @@ const Menu = {
       const p = World.players[0], won = name === 'win';
       this.html(`<h1 style="font-size:clamp(36px,7vw,60px)">${won ? 'ESCAPED' : 'FALLEN'}</h1>
         <div class="sub">${won ? 'You climbed out of the deep. It will be waiting.' : `Lost on level ${levelLabel(World.world, World.level)}, ${World.theme.n}.`}</div>
-        <div class="stats"><span>Seed</span><span>${Game.seed}</span><span>Level reached</span><span>${levelLabel(World.world, World.level)}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span><span>Foes slain</span><span>${p.kills}</span><span>Items</span><span>${p.items.length}</span><span>Embers banked</span><span class="ember">+${Game.runEmbers}</span></div>
+        <div class="stats"><span>Class</span><span>${CLASSES[Game.cls].n}</span><span>Seed</span><span>${Game.seed}</span><span>Level reached</span><span>${levelLabel(World.world, World.level)}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span><span>Foes slain</span><span>${p.kills}</span><span>Items</span><span>${p.items.length}</span><span>Embers banked</span><span class="ember">+${Game.runEmbers}</span></div>
         <button class="btn" id="b-again">Same Seed Again</button>
         <button class="btn" id="b-new">New Seed</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-sanct">Sanctum · ${M.embers} ◆</button></div>
         <button class="btn small" id="b-title">Title</button>`);
-      this.on('b-again', () => Game.newRun(Game.seed));
-      this.on('b-new', () => Game.newRun());
+      this.on('b-again', () => Game.newRun(Game.seed, Game.cls));
+      this.on('b-new', () => { World.map = null; this.show('class'); });
       this.on('b-save', () => { Game.saveSeed(); document.getElementById('b-save').textContent = 'Saved ✓'; });
       this.on('b-sanct', () => { World.map = null; this.show('sanctum'); });
       this.on('b-title', () => { World.map = null; this.show('title'); });

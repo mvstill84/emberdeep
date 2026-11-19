@@ -518,7 +518,7 @@ const Render = {
     c.globalAlpha = 1;
     for (const b of World.bolts) {
       const rng = RNG(b.seed + Math.floor(World.time * 30));
-      c.strokeStyle = `rgba(250,250,160,${b.life / 0.14})`; c.lineWidth = 2.5; c.beginPath(); c.moveTo(b.x1, b.y1);
+      c.strokeStyle = b.col ? hexA(b.col, b.life / 0.12) : `rgba(250,250,160,${b.life / 0.14})`; c.lineWidth = 2.5; c.beginPath(); c.moveTo(b.x1, b.y1);
       for (let i = 1; i < 6; i++) { const t = i / 6; c.lineTo(lerp(b.x1, b.x2, t) + rng.range(-9, 9), lerp(b.y1, b.y2, t) + rng.range(-9, 9)); }
       c.lineTo(b.x2, b.y2); c.stroke();
     }
@@ -529,6 +529,11 @@ const Render = {
   },
   warns() {
     const c = this.c;
+    for (const t of World.ptraps) { // ranger caltrops
+      c.strokeStyle = hexA('#8dff7a', clamp(t.life, 0, 1) * 0.9); c.lineWidth = 2; c.beginPath();
+      for (let i = 0; i < 3; i++) { const a = t.a + i * Math.PI / 3; c.moveTo(t.x - Math.cos(a) * 6, t.y - Math.sin(a) * 6); c.lineTo(t.x + Math.cos(a) * 6, t.y + Math.sin(a) * 6); }
+      c.stroke();
+    }
     for (const w of World.warns) {
       const k = clamp(w.t / w.dur, 0, 1);
       if (!w.fired) {

@@ -1,12 +1,12 @@
 // ===== World: level generation, entities, combat =====
-const T = 32, CW = 24, CH = 18, GRID = 6, MW = CW * GRID, MH = CH * GRID;
+const T = 32, CW = 32, CH = 24, GRID = 6, MW = CW * GRID, MH = CH * GRID;
 const VOID = 0, FLOOR = 1, WALL = 2, PILLAR = 3, DOOR = 4, SHUT = 5;
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const solidT = t => t === VOID || t === WALL || t === PILLAR || t === SHUT;
 
 const World = {
   world: 1, level: 1, depth: 1, theme: null, map: null, roomId: null, rooms: [], room: null, locked: false, waves: [], waveT: 0,
-  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], lastHit: null,
+  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], ptraps: [], lastHit: null,
   flow: null, flowKey: -1, flowT: 0, boss: null, time: 0,
 
   // ---------- generation ----------
@@ -42,10 +42,10 @@ const World = {
     }
     // bounding rects (odd sizes keep a clean center tile)
     for (const r of rooms) {
-      if (r.type === 'boss') { r.w = 21; r.h = 15; }
-      else if (r.type === 'exit') { r.w = 19; r.h = 13; }
-      else if (r.type === 'start' || r.type === 'armory') { r.w = 11; r.h = 9; }
-      else { r.w = rng.pick([13, 15, 17, 19]); r.h = rng.pick([9, 11, 13]); }
+      if (r.type === 'boss') { r.w = 29; r.h = 21; }
+      else if (r.type === 'exit') { r.w = 25; r.h = 17; }
+      else if (r.type === 'start' || r.type === 'armory') { r.w = 13; r.h = 11; }
+      else { r.w = rng.pick([15, 17, 19, 21, 23, 25]); r.h = rng.pick([11, 13, 15, 17, 19]); }
       r.x = r.cx * CW + Math.floor((CW - r.w) / 2); r.y = r.cy * CH + Math.floor((CH - r.h) / 2);
       r.mx = r.x + (r.w - 1) / 2; r.my = r.y + (r.h - 1) / 2;
       r.dirs = r.links.map(id => [Math.sign(rooms[id].cx - r.cx), Math.sign(rooms[id].cy - r.cy)]);
@@ -163,7 +163,7 @@ const World = {
       return true;
     };
     const put = (x, y) => { if (ok(x, y)) map[y * MW + x] = PILLAR; };
-    if (r.type === 'boss' || r.type === 'exit') { const dx = r.type === 'exit' ? 5 : 6, dy = r.type === 'exit' ? 3 : 4; for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); return; }
+    if (r.type === 'boss' || r.type === 'exit') { const dx = r.type === 'exit' ? 7 : 9, dy = r.type === 'exit' ? 4 : 6; for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); return; }
     if (style === 'crypt') {
       const hw = (r.w - 1) / 2, hh = (r.h - 1) / 2;
       for (let i = rng.int(2, 4); i > 0; i--) { const dx = rng.int(3, Math.max(3, hw - 2)), dy = rng.int(3, Math.max(3, hh - 2)); for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); }
@@ -174,7 +174,7 @@ const World = {
   },
   planWaves(r, rng) {
     const pool = this.theme.pools[this.level - 1];
-    let budget = 3 + Math.ceil(this.depth * 0.9) + rng.int(0, 2) + (r.w * r.h > 200 ? 2 : 0) + (r.type === 'exit' ? 5 : 0);
+    let budget = 3 + Math.ceil(this.depth * 0.9) + rng.int(0, 2) + Math.floor(r.w * r.h / 130) + (r.type === 'exit' ? 5 : 0);
     const nW = r.type === 'exit' ? 3 : budget >= 8 ? 2 : 1, free = [];
     for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (this.roomId[y * MW + x] === r.id && this.map[y * MW + x] === FLOOR) free.push([x, y]);
     r.waves = [];
@@ -195,7 +195,7 @@ const World = {
   // ---------- run setup ----------
   startLevel(w, l, keepPlayers) {
     this.gen(w, l);
-    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.lastHit = null; this.near = null; this.lastNear = null;
+    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.near = null; this.lastNear = null;
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     if (!keepPlayers) this.players = [this.makePlayer(0)];
@@ -204,7 +204,10 @@ const World = {
     Game.banner(this.theme.n, `Level ${levelLabel(w, l)}`, 2.6);
     Music.target = 0;
   },
-  baseStats() { return { speed: 155, rollCd: 0.42, dmg: Game.mods.glass ? 3 : 1, meleeDmg: 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1 }; },
+  baseStats() {
+    const cls = Game.cls || 'fighter';
+    return { speed: 155, rollCd: 0.42, dmg: Game.mods.glass ? 3 : 1, meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1 };
+  },
   // Rebuild stats from scratch from the items held, so items can be dropped cleanly
   recalc(p) {
     p.st = this.baseStats(); p.hooks = { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] };
@@ -220,20 +223,19 @@ const World = {
     this.pickups.push({ kind: 'item', item: ITEMS.find(it => it.id === id), x: s.x, y: s.y, t: 0, dropped: true });
   },
   makePlayer(slot) {
-    const sr = RNG(hash(Game.seedNum, 0, 11));
+    const sr = RNG(hash(Game.seedNum, 0, 11)), C = CLASSES[Game.cls || 'fighter'];
     const st = this.baseStats();
-    const hp = Game.mods.glass ? 2 : 6 + (Meta.has('heart1') ? 2 : 0) + (Meta.has('heart2') ? 2 : 0);
+    const hp = Game.mods.glass ? 2 : C.hp + (Meta.has('heart1') ? 2 : 0) + (Meta.has('heart2') ? 2 : 0);
     const kit = Meta.has('kit') ? 1 : 0, gold = Game.mods.allLegendary;
+    const starter = k => makeWeapon(sr, { type: k.type, spell: k.spell, rarity: gold ? 4 : kit, elem: kit || gold || k.type === 'wand' || k.type === 'spellbook' ? undefined : 'none', name: kit || gold ? undefined : k.name });
+    const maxMana = 100 * C.mana;
     return {
       slot, src: 'auto', x: 0, y: 0, r: 9, vx: 0, vy: 0, hp, maxHp: hp, baseHp: hp, parryT: 0, swapT: 0, lungeQ: false, inv: 0, roll: 0, rollCd: 0, rdx: 1, rdy: 0, aim: 0, slowT: 0,
-      weapons: [
-        makeWeapon(sr, { type: 'sword', rarity: gold ? 4 : kit, elem: kit || gold ? undefined : 'none', name: kit || gold ? undefined : 'Worn Blade' }),
-        makeWeapon(sr, { type: 'bow', rarity: gold ? 4 : kit, elem: kit || gold ? undefined : 'none', name: kit || gold ? undefined : 'Hunter\'s Bow' }),
-      ],
+      cls: Game.cls || 'fighter', weapons: C.kit.map(starter),
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
-      mana: 100, maxMana: 100, manaIdle: 0, lungeWin: 0, lunge: 0,
+      mana: maxMana, maxMana, manaRegen: C.mana, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
     };
   },
 
@@ -362,7 +364,7 @@ const World = {
     else if (inp.aim !== null) p.aim = inp.assist ? this.assist(p, inp.aim) : inp.aim;
     else if (inp.device !== 'kb' && (inp.mx || inp.my) && !p.charge) p.aim = Math.atan2(inp.my, inp.mx);
     p.inv -= dt; p.rollCd -= dt; p.slowT -= dt; p.lungeWin -= dt; p.manaIdle += dt; p.parryT -= dt; p.swapT -= dt;
-    p.mana = Math.min(p.maxMana, p.mana + dt * (p.manaIdle > 0.9 ? 34 : 14));
+    p.mana = Math.min(p.maxMana, p.mana + dt * (p.manaIdle > 0.9 ? 34 : 14) * p.manaRegen); p.blinkInv -= dt;
     for (const ww of p.weapons) ww.cdT = (ww.cdT || 0) - dt; // each weapon keeps its own cooldown
     const w = p.weapons[p.wi], melee = w.cat === 'melee';
     // swings keep cutting enemy shots for as long as the blade is moving
@@ -381,6 +383,7 @@ const World = {
       const sp = 340 * (p.roll > 0.12 ? 1 : 0.6);
       this.move(p, p.rdx * sp * dt, p.rdy * sp * dt);
       if (R.chance(0.6)) this.part(p.x, p.y, R.range(-20, 20), R.range(-20, 20), 0.35, 3, '#bfe3ff');
+      if (p.cls === 'ranger') { p.trapT -= dt; if (p.trapT <= 0) { p.trapT = 0.11; this.caltrop(p); } }
       if (p.roll <= 0) {
         p.lungeWin = 0.3;
         if (p.lungeQ && melee) { p.lungeQ = false; p.lungeWin = 0; p.lunge = 0.13; p.lungeW = w; w.cdT = w.cd / p.st.rate; Snd.play('roll'); }
@@ -389,8 +392,10 @@ const World = {
       if (inp.roll && p.rollCd <= 0) {
         let dx = inp.mx, dy = inp.my; if (!dx && !dy) { dx = Math.cos(p.aim); dy = Math.sin(p.aim); }
         const l = Math.hypot(dx, dy); p.rdx = dx / l; p.rdy = dy / l;
-        p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.charge = 0; p.slowT = 0; p.lungeQ = false;
-        Snd.play('roll'); for (const h of p.hooks.roll) h();
+        p.charge = 0; p.slowT = 0; p.lungeQ = false;
+        if (p.cls === 'mage') this.blink(p);
+        else { p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.trapT = 0; Snd.play('roll'); }
+        for (const h of p.hooks.roll) h();
       }
       const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1);
       const k = 1 - Math.exp(-18 * dt);
@@ -410,7 +415,7 @@ const World = {
         break;
       case 'bow':
         if (inp.attack && W2.cdT <= 0 && p.swapT <= 0) {
-          const prev = p.charge; p.charge = Math.min(1, Math.max(0.001, p.charge + dt * p.st.rate / W2.charge));
+          const prev = p.charge; p.charge = Math.min(1, Math.max(0.001, p.charge + dt * p.st.rate / (W2.charge * p.st.draw)));
           if (prev < 1 && p.charge >= 1) { Snd.play('charge'); for (let i = 0; i < 8; i++) this.part(p.x, p.y, Math.cos(i * TAU / 8) * 60, Math.sin(i * TAU / 8) * 60, 0.3, 2.5, ELEM[W2.elem].c, true); }
         } else if (p.charge > 0) { this.fireBow(p, W2); p.charge = 0; cdSet(); }
         break;
@@ -422,6 +427,24 @@ const World = {
       } break;
       case 'spellbook': if (ready) { this.cast(p, W2); cdSet(); } break;
     }
+  },
+  blink(p) { // Mage: hop up to ~150px, through shots, stopping at walls
+    const x0 = p.x, y0 = p.y, test = { x: p.x, y: p.y, r: p.r };
+    let bx = p.x, by = p.y;
+    for (let d = 10; d <= 150; d += 10) {
+      test.x = x0 + p.rdx * d; test.y = y0 + p.rdy * d;
+      const blocked = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([ox, oy]) => this.solidAt(test.x + ox * p.r, test.y + oy * p.r));
+      if (blocked) break; bx = test.x; by = test.y;
+    }
+    this.burst(x0, y0, 16, '#b58bff', 160, 0.4);
+    p.x = bx; p.y = by; p.vx = p.vy = 0;
+    this.burst(p.x, p.y, 16, '#d6a2ff', 160, 0.4);
+    this.bolts.push({ x1: x0, y1: y0, x2: p.x, y2: p.y, life: 0.12, seed: R() * 1000, col: '#d6a2ff' });
+    p.blinkInv = 0.3; p.rollCd = p.st.rollCd + 0.3;
+    Snd.play('blink');
+  },
+  caltrop(p) { // Ranger: spikes left behind while rolling
+    this.ptraps.push({ x: p.x + R.range(-6, 6), y: p.y + R.range(-6, 6), r: 12, life: 6, hits: 2, dmg: 6 * p.st.dmg * p.st.rangedDmg, p, a: R() * TAU });
   },
   cutShots(p, s) {
     const ca = Math.cos(s.a), sa = Math.sin(s.a);
@@ -473,13 +496,13 @@ const World = {
     const c = p.charge, full = c >= 1, n = this.shotCount(p, w), cm = this.critRoll(p, w);
     for (let i = 0; i < n; i++) {
       const a = p.aim + (i - (n - 1) / 2) * 0.1;
-      this.mkProj(p, w, a, { speed: w.speed * (0.55 + 0.45 * c), r: full ? 5 : 4, kind: 'arrow', life: 1.3, dmg: w.dmg * p.st.dmg * (0.3 + 0.7 * c) * (full ? 1.3 : 1) * cm, crit: cm > 1, pierce: (full ? 1 : 0) + (hasQ(w, 'pierce') ? 1 : 0), full });
+      this.mkProj(p, w, a, { speed: w.speed * (0.55 + 0.45 * c), r: full ? 5 : 4, kind: 'arrow', life: 1.3, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * (0.3 + 0.7 * c) * (full ? 1.3 : 1) * cm, crit: cm > 1, pierce: (full ? 1 : 0) + (hasQ(w, 'pierce') ? 1 : 0), full });
     }
     Snd.play('arrow'); Render.kick(full ? 3 : 1);
   },
   fireCrossbow(p, w) {
     const n = this.shotCount(p, w), cm = this.critRoll(p, w);
-    for (let i = 0; i < n; i++) this.mkProj(p, w, p.aim + (i - (n - 1) / 2) * 0.09, { speed: w.speed, r: 4, kind: 'arrow', full: true, life: 1.2, dmg: w.dmg * p.st.dmg * cm, crit: cm > 1, pierce: 99 });
+    for (let i = 0; i < n; i++) this.mkProj(p, w, p.aim + (i - (n - 1) / 2) * 0.09, { speed: w.speed, r: 4, kind: 'arrow', full: true, life: 1.2, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * cm, crit: cm > 1, pierce: 99 });
     Snd.play('arrow'); Snd.play('thunk'); Render.kick(3);
   },
   fireBolt(p, w) {
@@ -638,7 +661,7 @@ const World = {
   hasSyn(id) { return this.players.some(p => p.syn.includes(id)); },
 
   hurt(p, n = 1) {
-    if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.dead || Game.state !== 'play') return;
+    if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.blinkInv > 0 || p.dead || Game.state !== 'play') return;
     p.hp -= n * (p.st.hurtMult || 1); p.inv = 1.15;
     Snd.play('hurt'); Render.kick(9); Game.hitstop(0.09); Render.flash = 0.25;
     this.burst(p.x, p.y, 20, '#ff4060', 220, 0.5);
@@ -982,6 +1005,17 @@ const World = {
       if (h.arm <= 0 && !p.dead && d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 2) ** 2 && p.roll <= 0.03 && p.inv <= 0) { h.life = 0; this.hurt(p, 1); this.burst(h.x, h.y, 10, '#c8c8c8', 140, 0.3); }
     }
     this.hazards = this.hazards.filter(h => h.life > 0);
+    for (const t of this.ptraps) {
+      t.life -= dt;
+      for (const e of this.enemies) {
+        if (t.hits <= 0 || e.dead || e.spawnT > 0 || e.air || e.bones > 0 || e.ghost) continue;
+        if (d2(t.x, t.y, e.x, e.y) < (t.r + e.r) ** 2 && !(t.hitSet || (t.hitSet = new Set())).has(e)) {
+          t.hitSet.add(e); t.hits--; e.chill = Math.max(e.chill, 1.4);
+          this.damage(e, t.dmg, { x: t.x, y: t.y, depth: 1, elem: 'none', p: t.p });
+        }
+      }
+    }
+    this.ptraps = this.ptraps.filter(t => t.life > 0 && t.hits > 0);
     for (const z of this.zones) {
       z.t += dt; z.tick -= dt;
       if (z.tick <= 0) {

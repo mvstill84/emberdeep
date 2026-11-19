@@ -165,8 +165,15 @@ const Input = {
     addEventListener('pointerup', up); addEventListener('pointercancel', up);
   },
   // Touch layout: buttons bottom-right, left half = move stick, right half = aim/attack stick
+  // Netlify's free-tier badge sits in the bottom-right corner and swallows taps; keep our buttons above it
+  badgeH() {
+    const now = performance.now(); if (now - (this._bt || 0) < 1000) return this._bh || 0; this._bt = now;
+    const f = document.getElementById('nl-badge-frame'); let h = 0;
+    if (f) { const r = f.getBoundingClientRect(); if (r.width && r.height && getComputedStyle(f).display !== 'none') h = innerHeight - r.top; }
+    return (this._bh = clamp(h, 0, 90));
+  },
   touchButtons() {
-    const w = innerWidth, h = innerHeight, s = Math.min(w, h), A = s * 0.115;
+    const w = innerWidth, s = Math.min(w, innerHeight), A = s * 0.115, h = innerHeight - this.badgeH();
     return [
       { id: 'attack', x: w - A * 1.35, y: h - A * 1.35, r: A },
       { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.62 },
@@ -430,8 +437,10 @@ function rollRarity(rng, depth, src = 'room') {
   for (let i = 0; i < 5; i++) { r -= w[i]; if (r <= 0) return i; }
   return 0;
 }
+// Drops lean 60% toward your class's weapon family
 function pickWeaponType(rng) {
-  const cat = rng.pick(['melee', 'ranged', 'magic']);
+  const mine = CLASSES[Game.cls || 'fighter'].cat, others = ['melee', 'ranged', 'magic'].filter(c => c !== mine);
+  const cat = rng.chance(0.6) ? mine : rng.pick(others);
   return rng.pick(Object.keys(WBASE).filter(k => WBASE[k].cat === cat));
 }
 
@@ -563,7 +572,28 @@ const WORLD_COUNT = 3;
 const levelLabel = (w, l) => `${w}-${l}`;
 
 // ===== Sanctum unlocks (permanent). A full run (~250 embers) buys about one. =====
+// ===== Classes =====
+const CLASSES = {
+  fighter: {
+    n: 'Fighter', c: '#ff9a5a', cat: 'melee', hp: 8, cost: 0, move: 'Roll', mana: 0.5,
+    perk: '+20% melee damage', moveD: 'Roll, then attack to lunge',
+    kit: [{ type: 'sword', name: 'Worn Blade' }, { type: 'bow', name: 'Hunter\'s Bow' }],
+  },
+  ranger: {
+    n: 'Ranger', c: '#8dff7a', cat: 'ranged', hp: 6, cost: 220, move: 'Roll', mana: 0.5,
+    perk: '+20% ranged damage, bows draw 20% faster', moveD: 'Rolls scatter caltrops that hurt and slow foes',
+    kit: [{ type: 'bow', name: 'Hunter\'s Bow' }, { type: 'spear', name: 'Ash Spear' }],
+  },
+  mage: {
+    n: 'Mage', c: '#b58bff', cat: 'magic', hp: 6, cost: 220, move: 'Blink', mana: 1,
+    perk: 'Full mana pool (other classes get half)', moveD: 'Blink a short distance instead of rolling',
+    kit: [{ type: 'wand', name: 'Apprentice Wand' }, { type: 'spellbook', spell: 'missiles', name: 'Primer of Magic Missile' }],
+  },
+};
+
 const UNLOCKS = [
+  { id: 'ranger', n: 'Ranger', d: 'Unlock the Ranger class', cost: 220 },
+  { id: 'mage', n: 'Mage', d: 'Unlock the Mage class', cost: 220 },
   { id: 'kit', n: 'Field Kit', d: 'Start runs with Uncommon weapons', cost: 140 },
   { id: 'heart1', n: 'Sturdy Heart', d: 'Start every run with +1 heart', cost: 180 },
   { id: 'codexE', n: 'Elemental Codex', d: 'Adds Kindling, Frost Lens and Storm Coil to the item pool', cost: 220 },
@@ -581,14 +611,14 @@ const SECRETS = {
 };
 
 // ===== World: level generation, entities, combat =====
-const T = 32, CW = 24, CH = 18, GRID = 6, MW = CW * GRID, MH = CH * GRID;
+const T = 32, CW = 32, CH = 24, GRID = 6, MW = CW * GRID, MH = CH * GRID;
 const VOID = 0, FLOOR = 1, WALL = 2, PILLAR = 3, DOOR = 4, SHUT = 5;
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const solidT = t => t === VOID || t === WALL || t === PILLAR || t === SHUT;
 
 const World = {
   world: 1, level: 1, depth: 1, theme: null, map: null, roomId: null, rooms: [], room: null, locked: false, waves: [], waveT: 0,
-  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], lastHit: null,
+  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], ptraps: [], lastHit: null,
   flow: null, flowKey: -1, flowT: 0, boss: null, time: 0,
 
   // ---------- generation ----------
@@ -624,10 +654,10 @@ const World = {
     }
     // bounding rects (odd sizes keep a clean center tile)
     for (const r of rooms) {
-      if (r.type === 'boss') { r.w = 21; r.h = 15; }
-      else if (r.type === 'exit') { r.w = 19; r.h = 13; }
-      else if (r.type === 'start' || r.type === 'armory') { r.w = 11; r.h = 9; }
-      else { r.w = rng.pick([13, 15, 17, 19]); r.h = rng.pick([9, 11, 13]); }
+      if (r.type === 'boss') { r.w = 29; r.h = 21; }
+      else if (r.type === 'exit') { r.w = 25; r.h = 17; }
+      else if (r.type === 'start' || r.type === 'armory') { r.w = 13; r.h = 11; }
+      else { r.w = rng.pick([15, 17, 19, 21, 23, 25]); r.h = rng.pick([11, 13, 15, 17, 19]); }
       r.x = r.cx * CW + Math.floor((CW - r.w) / 2); r.y = r.cy * CH + Math.floor((CH - r.h) / 2);
       r.mx = r.x + (r.w - 1) / 2; r.my = r.y + (r.h - 1) / 2;
       r.dirs = r.links.map(id => [Math.sign(rooms[id].cx - r.cx), Math.sign(rooms[id].cy - r.cy)]);
@@ -745,7 +775,7 @@ const World = {
       return true;
     };
     const put = (x, y) => { if (ok(x, y)) map[y * MW + x] = PILLAR; };
-    if (r.type === 'boss' || r.type === 'exit') { const dx = r.type === 'exit' ? 5 : 6, dy = r.type === 'exit' ? 3 : 4; for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); return; }
+    if (r.type === 'boss' || r.type === 'exit') { const dx = r.type === 'exit' ? 7 : 9, dy = r.type === 'exit' ? 4 : 6; for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); return; }
     if (style === 'crypt') {
       const hw = (r.w - 1) / 2, hh = (r.h - 1) / 2;
       for (let i = rng.int(2, 4); i > 0; i--) { const dx = rng.int(3, Math.max(3, hw - 2)), dy = rng.int(3, Math.max(3, hh - 2)); for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); }
@@ -756,7 +786,7 @@ const World = {
   },
   planWaves(r, rng) {
     const pool = this.theme.pools[this.level - 1];
-    let budget = 3 + Math.ceil(this.depth * 0.9) + rng.int(0, 2) + (r.w * r.h > 200 ? 2 : 0) + (r.type === 'exit' ? 5 : 0);
+    let budget = 3 + Math.ceil(this.depth * 0.9) + rng.int(0, 2) + Math.floor(r.w * r.h / 130) + (r.type === 'exit' ? 5 : 0);
     const nW = r.type === 'exit' ? 3 : budget >= 8 ? 2 : 1, free = [];
     for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (this.roomId[y * MW + x] === r.id && this.map[y * MW + x] === FLOOR) free.push([x, y]);
     r.waves = [];
@@ -777,7 +807,7 @@ const World = {
   // ---------- run setup ----------
   startLevel(w, l, keepPlayers) {
     this.gen(w, l);
-    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.lastHit = null; this.near = null; this.lastNear = null;
+    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.near = null; this.lastNear = null;
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     if (!keepPlayers) this.players = [this.makePlayer(0)];
@@ -786,7 +816,10 @@ const World = {
     Game.banner(this.theme.n, `Level ${levelLabel(w, l)}`, 2.6);
     Music.target = 0;
   },
-  baseStats() { return { speed: 155, rollCd: 0.42, dmg: Game.mods.glass ? 3 : 1, meleeDmg: 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1 }; },
+  baseStats() {
+    const cls = Game.cls || 'fighter';
+    return { speed: 155, rollCd: 0.42, dmg: Game.mods.glass ? 3 : 1, meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1 };
+  },
   // Rebuild stats from scratch from the items held, so items can be dropped cleanly
   recalc(p) {
     p.st = this.baseStats(); p.hooks = { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] };
@@ -802,20 +835,19 @@ const World = {
     this.pickups.push({ kind: 'item', item: ITEMS.find(it => it.id === id), x: s.x, y: s.y, t: 0, dropped: true });
   },
   makePlayer(slot) {
-    const sr = RNG(hash(Game.seedNum, 0, 11));
+    const sr = RNG(hash(Game.seedNum, 0, 11)), C = CLASSES[Game.cls || 'fighter'];
     const st = this.baseStats();
-    const hp = Game.mods.glass ? 2 : 6 + (Meta.has('heart1') ? 2 : 0) + (Meta.has('heart2') ? 2 : 0);
+    const hp = Game.mods.glass ? 2 : C.hp + (Meta.has('heart1') ? 2 : 0) + (Meta.has('heart2') ? 2 : 0);
     const kit = Meta.has('kit') ? 1 : 0, gold = Game.mods.allLegendary;
+    const starter = k => makeWeapon(sr, { type: k.type, spell: k.spell, rarity: gold ? 4 : kit, elem: kit || gold || k.type === 'wand' || k.type === 'spellbook' ? undefined : 'none', name: kit || gold ? undefined : k.name });
+    const maxMana = 100 * C.mana;
     return {
       slot, src: 'auto', x: 0, y: 0, r: 9, vx: 0, vy: 0, hp, maxHp: hp, baseHp: hp, parryT: 0, swapT: 0, lungeQ: false, inv: 0, roll: 0, rollCd: 0, rdx: 1, rdy: 0, aim: 0, slowT: 0,
-      weapons: [
-        makeWeapon(sr, { type: 'sword', rarity: gold ? 4 : kit, elem: kit || gold ? undefined : 'none', name: kit || gold ? undefined : 'Worn Blade' }),
-        makeWeapon(sr, { type: 'bow', rarity: gold ? 4 : kit, elem: kit || gold ? undefined : 'none', name: kit || gold ? undefined : 'Hunter\'s Bow' }),
-      ],
+      cls: Game.cls || 'fighter', weapons: C.kit.map(starter),
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
-      mana: 100, maxMana: 100, manaIdle: 0, lungeWin: 0, lunge: 0,
+      mana: maxMana, maxMana, manaRegen: C.mana, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
     };
   },
 
@@ -944,7 +976,7 @@ const World = {
     else if (inp.aim !== null) p.aim = inp.assist ? this.assist(p, inp.aim) : inp.aim;
     else if (inp.device !== 'kb' && (inp.mx || inp.my) && !p.charge) p.aim = Math.atan2(inp.my, inp.mx);
     p.inv -= dt; p.rollCd -= dt; p.slowT -= dt; p.lungeWin -= dt; p.manaIdle += dt; p.parryT -= dt; p.swapT -= dt;
-    p.mana = Math.min(p.maxMana, p.mana + dt * (p.manaIdle > 0.9 ? 34 : 14));
+    p.mana = Math.min(p.maxMana, p.mana + dt * (p.manaIdle > 0.9 ? 34 : 14) * p.manaRegen); p.blinkInv -= dt;
     for (const ww of p.weapons) ww.cdT = (ww.cdT || 0) - dt; // each weapon keeps its own cooldown
     const w = p.weapons[p.wi], melee = w.cat === 'melee';
     // swings keep cutting enemy shots for as long as the blade is moving
@@ -963,6 +995,7 @@ const World = {
       const sp = 340 * (p.roll > 0.12 ? 1 : 0.6);
       this.move(p, p.rdx * sp * dt, p.rdy * sp * dt);
       if (R.chance(0.6)) this.part(p.x, p.y, R.range(-20, 20), R.range(-20, 20), 0.35, 3, '#bfe3ff');
+      if (p.cls === 'ranger') { p.trapT -= dt; if (p.trapT <= 0) { p.trapT = 0.11; this.caltrop(p); } }
       if (p.roll <= 0) {
         p.lungeWin = 0.3;
         if (p.lungeQ && melee) { p.lungeQ = false; p.lungeWin = 0; p.lunge = 0.13; p.lungeW = w; w.cdT = w.cd / p.st.rate; Snd.play('roll'); }
@@ -971,8 +1004,10 @@ const World = {
       if (inp.roll && p.rollCd <= 0) {
         let dx = inp.mx, dy = inp.my; if (!dx && !dy) { dx = Math.cos(p.aim); dy = Math.sin(p.aim); }
         const l = Math.hypot(dx, dy); p.rdx = dx / l; p.rdy = dy / l;
-        p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.charge = 0; p.slowT = 0; p.lungeQ = false;
-        Snd.play('roll'); for (const h of p.hooks.roll) h();
+        p.charge = 0; p.slowT = 0; p.lungeQ = false;
+        if (p.cls === 'mage') this.blink(p);
+        else { p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.trapT = 0; Snd.play('roll'); }
+        for (const h of p.hooks.roll) h();
       }
       const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1);
       const k = 1 - Math.exp(-18 * dt);
@@ -992,7 +1027,7 @@ const World = {
         break;
       case 'bow':
         if (inp.attack && W2.cdT <= 0 && p.swapT <= 0) {
-          const prev = p.charge; p.charge = Math.min(1, Math.max(0.001, p.charge + dt * p.st.rate / W2.charge));
+          const prev = p.charge; p.charge = Math.min(1, Math.max(0.001, p.charge + dt * p.st.rate / (W2.charge * p.st.draw)));
           if (prev < 1 && p.charge >= 1) { Snd.play('charge'); for (let i = 0; i < 8; i++) this.part(p.x, p.y, Math.cos(i * TAU / 8) * 60, Math.sin(i * TAU / 8) * 60, 0.3, 2.5, ELEM[W2.elem].c, true); }
         } else if (p.charge > 0) { this.fireBow(p, W2); p.charge = 0; cdSet(); }
         break;
@@ -1004,6 +1039,24 @@ const World = {
       } break;
       case 'spellbook': if (ready) { this.cast(p, W2); cdSet(); } break;
     }
+  },
+  blink(p) { // Mage: hop up to ~150px, through shots, stopping at walls
+    const x0 = p.x, y0 = p.y, test = { x: p.x, y: p.y, r: p.r };
+    let bx = p.x, by = p.y;
+    for (let d = 10; d <= 150; d += 10) {
+      test.x = x0 + p.rdx * d; test.y = y0 + p.rdy * d;
+      const blocked = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([ox, oy]) => this.solidAt(test.x + ox * p.r, test.y + oy * p.r));
+      if (blocked) break; bx = test.x; by = test.y;
+    }
+    this.burst(x0, y0, 16, '#b58bff', 160, 0.4);
+    p.x = bx; p.y = by; p.vx = p.vy = 0;
+    this.burst(p.x, p.y, 16, '#d6a2ff', 160, 0.4);
+    this.bolts.push({ x1: x0, y1: y0, x2: p.x, y2: p.y, life: 0.12, seed: R() * 1000, col: '#d6a2ff' });
+    p.blinkInv = 0.3; p.rollCd = p.st.rollCd + 0.3;
+    Snd.play('blink');
+  },
+  caltrop(p) { // Ranger: spikes left behind while rolling
+    this.ptraps.push({ x: p.x + R.range(-6, 6), y: p.y + R.range(-6, 6), r: 12, life: 6, hits: 2, dmg: 6 * p.st.dmg * p.st.rangedDmg, p, a: R() * TAU });
   },
   cutShots(p, s) {
     const ca = Math.cos(s.a), sa = Math.sin(s.a);
@@ -1055,13 +1108,13 @@ const World = {
     const c = p.charge, full = c >= 1, n = this.shotCount(p, w), cm = this.critRoll(p, w);
     for (let i = 0; i < n; i++) {
       const a = p.aim + (i - (n - 1) / 2) * 0.1;
-      this.mkProj(p, w, a, { speed: w.speed * (0.55 + 0.45 * c), r: full ? 5 : 4, kind: 'arrow', life: 1.3, dmg: w.dmg * p.st.dmg * (0.3 + 0.7 * c) * (full ? 1.3 : 1) * cm, crit: cm > 1, pierce: (full ? 1 : 0) + (hasQ(w, 'pierce') ? 1 : 0), full });
+      this.mkProj(p, w, a, { speed: w.speed * (0.55 + 0.45 * c), r: full ? 5 : 4, kind: 'arrow', life: 1.3, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * (0.3 + 0.7 * c) * (full ? 1.3 : 1) * cm, crit: cm > 1, pierce: (full ? 1 : 0) + (hasQ(w, 'pierce') ? 1 : 0), full });
     }
     Snd.play('arrow'); Render.kick(full ? 3 : 1);
   },
   fireCrossbow(p, w) {
     const n = this.shotCount(p, w), cm = this.critRoll(p, w);
-    for (let i = 0; i < n; i++) this.mkProj(p, w, p.aim + (i - (n - 1) / 2) * 0.09, { speed: w.speed, r: 4, kind: 'arrow', full: true, life: 1.2, dmg: w.dmg * p.st.dmg * cm, crit: cm > 1, pierce: 99 });
+    for (let i = 0; i < n; i++) this.mkProj(p, w, p.aim + (i - (n - 1) / 2) * 0.09, { speed: w.speed, r: 4, kind: 'arrow', full: true, life: 1.2, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * cm, crit: cm > 1, pierce: 99 });
     Snd.play('arrow'); Snd.play('thunk'); Render.kick(3);
   },
   fireBolt(p, w) {
@@ -1220,7 +1273,7 @@ const World = {
   hasSyn(id) { return this.players.some(p => p.syn.includes(id)); },
 
   hurt(p, n = 1) {
-    if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.dead || Game.state !== 'play') return;
+    if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.blinkInv > 0 || p.dead || Game.state !== 'play') return;
     p.hp -= n * (p.st.hurtMult || 1); p.inv = 1.15;
     Snd.play('hurt'); Render.kick(9); Game.hitstop(0.09); Render.flash = 0.25;
     this.burst(p.x, p.y, 20, '#ff4060', 220, 0.5);
@@ -1564,6 +1617,17 @@ const World = {
       if (h.arm <= 0 && !p.dead && d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 2) ** 2 && p.roll <= 0.03 && p.inv <= 0) { h.life = 0; this.hurt(p, 1); this.burst(h.x, h.y, 10, '#c8c8c8', 140, 0.3); }
     }
     this.hazards = this.hazards.filter(h => h.life > 0);
+    for (const t of this.ptraps) {
+      t.life -= dt;
+      for (const e of this.enemies) {
+        if (t.hits <= 0 || e.dead || e.spawnT > 0 || e.air || e.bones > 0 || e.ghost) continue;
+        if (d2(t.x, t.y, e.x, e.y) < (t.r + e.r) ** 2 && !(t.hitSet || (t.hitSet = new Set())).has(e)) {
+          t.hitSet.add(e); t.hits--; e.chill = Math.max(e.chill, 1.4);
+          this.damage(e, t.dmg, { x: t.x, y: t.y, depth: 1, elem: 'none', p: t.p });
+        }
+      }
+    }
+    this.ptraps = this.ptraps.filter(t => t.life > 0 && t.hits > 0);
     for (const z of this.zones) {
       z.t += dt; z.tick -= dt;
       if (z.tick <= 0) {
@@ -2220,7 +2284,7 @@ const Render = {
     c.globalAlpha = 1;
     for (const b of World.bolts) {
       const rng = RNG(b.seed + Math.floor(World.time * 30));
-      c.strokeStyle = `rgba(250,250,160,${b.life / 0.14})`; c.lineWidth = 2.5; c.beginPath(); c.moveTo(b.x1, b.y1);
+      c.strokeStyle = b.col ? hexA(b.col, b.life / 0.12) : `rgba(250,250,160,${b.life / 0.14})`; c.lineWidth = 2.5; c.beginPath(); c.moveTo(b.x1, b.y1);
       for (let i = 1; i < 6; i++) { const t = i / 6; c.lineTo(lerp(b.x1, b.x2, t) + rng.range(-9, 9), lerp(b.y1, b.y2, t) + rng.range(-9, 9)); }
       c.lineTo(b.x2, b.y2); c.stroke();
     }
@@ -2231,6 +2295,11 @@ const Render = {
   },
   warns() {
     const c = this.c;
+    for (const t of World.ptraps) { // ranger caltrops
+      c.strokeStyle = hexA('#8dff7a', clamp(t.life, 0, 1) * 0.9); c.lineWidth = 2; c.beginPath();
+      for (let i = 0; i < 3; i++) { const a = t.a + i * Math.PI / 3; c.moveTo(t.x - Math.cos(a) * 6, t.y - Math.sin(a) * 6); c.lineTo(t.x + Math.cos(a) * 6, t.y + Math.sin(a) * 6); }
+      c.stroke();
+    }
     for (const w of World.warns) {
       const k = clamp(w.t / w.dur, 0, 1);
       if (!w.fired) {
@@ -2407,9 +2476,10 @@ const HUD = {
     // items
     p.items.forEach((id, i) => { const it = ITEMS.find(x => x.id === id); itemIcon(c, it, pad + 11 + (i % 10) * 24, pad + 66 + Math.floor(i / 10) * 24, 10); });
     // weapons
-    const tch = Input.last === 'touch', bx = tch ? (W - 250) / 2 : pad, by = tch ? pad - 4 : H - pad - 64; // on touch, keep thumbs' corners clear
+    const tch = Input.last === 'touch', bx = tch ? (W - 300) / 2 : pad, by = tch ? pad - 4 : H - pad - 64; // on touch, keep thumbs' corners clear
     p.weapons.forEach((w, i) => {
-      const active = i === p.wi, y = active ? by : tch ? by + 66 : by - 46, h = active ? 62 : 40, ww = active ? 250 : 210;
+      const active = i === p.wi; c.font = font(active ? 15 : 13, 800);
+      const y = active ? by : tch ? by + 66 : by - 46, h = active ? 62 : 40, ww = clamp(c.measureText(w.name).width + 70, active ? 250 : 210, Math.min(420, W - 40));
       c.fillStyle = active ? 'rgba(20,14,38,0.85)' : 'rgba(20,14,38,0.6)'; roundRect(c, bx, y, ww, h, 10); c.fill();
       c.strokeStyle = active ? RARITY[w.rarity].c : 'rgba(120,100,180,0.5)'; c.lineWidth = active ? 2 : 1; c.stroke();
       weaponIcon(c, w, bx + 26, y + h / 2, active ? 30 : 22);
@@ -2470,7 +2540,7 @@ const HUD = {
   // side-by-side: what you hold vs. what's on the floor
   compare(c, W, H, p, nw, key, font) {
     const cur = p.weapons.length < 2 ? null : p.weapons[p.wi];
-    const cw = Math.min(250, (W - 50) / 2), gap = 14, y = H * 0.5, x0 = W / 2 - cw - gap / 2, x1 = W / 2 + gap / 2;
+    const cw = Math.min(260, (W - 50) / 2), gap = 14, y0 = H * 0.5, y = y0, x0 = W / 2 - cw - gap / 2, x1 = W / 2 + gap / 2;
     const stats = w => {
       const rows = [[w.type === 'spellbook' ? 'Spell' : 'Damage', w.type === 'spellbook' ? SPELLS[w.spell].n : Math.round(w.dmg), w.dmg]];
       rows.push([w.type === 'bow' ? 'Draw' : w.type === 'spellbook' ? 'Cooldown' : 'Speed', w.type === 'bow' ? w.charge.toFixed(2) + 's' : w.type === 'spellbook' ? w.cd.toFixed(1) + 's' : (1 / w.cd).toFixed(1) + '/s', w.type === 'bow' ? -w.charge : w.type === 'spellbook' ? -w.cd : 1 / w.cd]);
@@ -2478,16 +2548,20 @@ const HUD = {
       rows.push(['Element', w.elem === 'none' ? '-' : w.elem]);
       return rows;
     };
-    const card = (w, x, label, other) => {
+    const card = (w, x, label, other, y = y0) => {
       const lines = w ? w.quirks.map(q => QUIRKS.find(z => z.id === q).d) : [];
       if (w && !lines.length) lines.push(WBASE[w.type].d);
-      const h = 132 + lines.length * 16;
+      c.font = font(14, 800); const extra = w ? (wrapText(c, w.name, cw - 60, 2).length - 1) * 16 : 0;
+      const h = 132 + lines.length * 16 + extra;
       c.fillStyle = 'rgba(14,9,28,0.92)'; roundRect(c, x, y, cw, h, 10); c.fill();
       c.strokeStyle = w ? RARITY[w.rarity].c : '#555'; c.lineWidth = label === 'NEW' ? 2 : 1.2; c.stroke();
       c.textAlign = 'left'; c.fillStyle = 'rgba(233,228,255,0.5)'; c.font = font(10, 800); c.fillText(label, x + 12, y + 16);
       if (!w) { c.fillStyle = '#aaa'; c.font = font(13, 600); c.fillText('Empty slot', x + 12, y + 40); return h; }
       weaponIcon(c, w, x + cw - 26, y + 26, 26, -0.8);
-      c.fillStyle = RARITY[w.rarity].c; c.font = font(14, 800); c.fillText(fitText(c, w.name, cw - 60), x + 12, y + 36);
+      c.fillStyle = RARITY[w.rarity].c; c.font = font(14, 800);
+      const nl = wrapText(c, w.name, cw - 60, 2);
+      nl.forEach((t, i) => c.fillText(t, x + 12, y + 36 + i * 16));
+      const yo = (nl.length - 1) * 16; y += yo;
       c.fillStyle = 'rgba(233,228,255,0.6)'; c.font = font(11, 600); c.fillText(`${RARITY[w.rarity].n} ${w.type}`, x + 12, y + 52);
       const mine = stats(w), theirs = other ? stats(other) : null;
       mine.forEach((r, i) => {
@@ -2512,7 +2586,7 @@ const HUD = {
   enemyBox(c, W, H, pad, font) { // name of the last thing you hit
     const lh = World.lastHit; if (!lh || lh.t <= 0) return;
     const e = lh.e, a = clamp(lh.t / 0.5, 0, 1), bw = 170, tch = Input.last === 'touch';
-    const x = tch ? pad : W - pad - bw, y = tch ? pad + 92 : H - pad - 48;
+    const x = tch ? pad : (W - bw) / 2, y = tch ? pad + 92 : pad;
     c.globalAlpha = a;
     c.fillStyle = 'rgba(14,9,28,0.75)'; roundRect(c, x, y, bw, 40, 8); c.fill();
     c.textAlign = 'left'; c.fillStyle = e.D.c; c.font = font(12, 800); c.fillText(e.D.n || '', x + 10, y + 16);
@@ -2560,10 +2634,17 @@ const HUD = {
       c.strokeStyle = b.id === 'attack' ? 'rgba(255,200,140,0.7)' : 'rgba(233,228,255,0.4)'; c.lineWidth = b.id === 'attack' ? 2.5 : 1.5; c.stroke();
       if (b.id === 'attack') { weaponIcon(c, w, b.x, b.y, b.r * 1.0, -0.8); continue; }
       c.fillStyle = '#f4eeff'; c.textAlign = 'center'; c.font = `800 ${Math.round(b.r * 0.42)}px ui-rounded, system-ui, sans-serif`;
-      c.fillText({ roll: 'ROLL', swap: 'SWAP', use: 'USE', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
+      c.fillText({ roll: p.cls === 'mage' ? 'BLINK' : 'ROLL', swap: 'SWAP', use: 'USE', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
     }
   },
 };
+function wrapText(c, s, w, max) {
+  const words = s.split(' '), out = []; let line = '';
+  for (const wd of words) { const t = line ? line + ' ' + wd : wd; if (c.measureText(t).width > w && line) { out.push(line); line = wd; } else line = t; }
+  if (line) out.push(line);
+  if (out.length > max) { const rest = out.slice(max - 1).join(' '); out.length = max - 1; out.push(fitText(c, rest, w)); }
+  return out;
+}
 function fitText(c, s, w) { if (c.measureText(s).width <= w) return s; while (s.length > 3 && c.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
 function weaponLine(w) {
   const dmg = Math.round(w.dmg), spd = (1 / w.cd).toFixed(1);
@@ -2574,11 +2655,14 @@ function weaponLine(w) {
 
 // ===== Game: state, runs, menus =====
 const Game = {
-  state: 'menu', seed: '', seedNum: 0, mods: {}, secret: null, hs: 0, runEmbers: 0, runTime: 0, bannerData: null, deadT: 0,
+  state: 'menu', seed: '', seedNum: 0, mods: {}, cls: 'fighter', secret: null, hs: 0, runEmbers: 0, runTime: 0, bannerData: null, deadT: 0,
   hitstop(t) { this.hs = Math.max(this.hs, t); },
   banner(title, sub, dur = 2) { this.bannerData = { title, sub, dur, t: 0 }; },
-  newRun(seedStr) {
+  newRun(seedStr, cls) {
     Snd.init(); Screen.goFull();
+    this.cls = cls || Meta.data.lastClass || 'fighter';
+    if (this.cls !== 'fighter' && !Meta.has(this.cls)) this.cls = 'fighter';
+    Meta.data.lastClass = this.cls;
     this.seed = normSeed(seedStr) || randomSeed();
     this.seedNum = strHash(this.seed);
     const sec = SECRETS[this.seedNum];
@@ -2619,6 +2703,11 @@ const Game = {
     Meta.data.seeds = list.slice(0, 40); Meta.save();
   },
   frame(ts) {
+    try { this.step(ts); } catch (err) { console.error(err); }
+    Input.endFrame();
+    requestAnimationFrame(t => this.frame(t));
+  },
+  step(ts) {
     const dt = Math.min(0.05, (ts - (this.last || ts)) / 1000); this.last = ts;
     if (Input.pressed.has('escape') || Input.pressed.has('p')) this.togglePause();
     if (this.state === 'play' && Screen.portrait()) this.togglePause();
@@ -2631,8 +2720,6 @@ const Game = {
       if (this.deadT > 0) { this.deadT -= dt; if (this.deadT <= 0) this.end(false); }
     }
     if (World.map) Render.draw(rdt); else Menu.drawBg(dt);
-    Input.endFrame();
-    requestAnimationFrame(t => this.frame(t));
   },
 };
 
@@ -2649,7 +2736,7 @@ const Menu = {
   },
   html(h) { this.el.innerHTML = `<div class="panel">${h}</div>`; this.el.classList.remove('hidden'); },
   on(id, fn) { const b = document.getElementById(id); if (b) b.onclick = () => { Snd.init(); Screen.goFull(); Snd.play('ui'); fn(); }; },
-  show(name) {
+  show(name, arg) {
     const M = Meta.data, ctrl = matchMedia('(pointer:coarse)').matches
       ? 'Left thumb moves. Hold the big button to attack the nearest foe, or drag on the right side to aim by hand. Hold to draw a bow, let go to fire. After a roll, attack right away to lunge.'
       : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
@@ -2661,7 +2748,7 @@ const Menu = {
         <div class="row"><button class="btn" id="b-saved">Saved Seeds</button><button class="btn" id="b-sanct">Sanctum · <span class="ember">${M.embers}</span></button></div>
         <button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button>
         <div class="hint">${ctrl}</div>`);
-      this.on('b-new', () => Game.newRun());
+      this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
       this.on('b-saved', () => this.show('saved'));
       this.on('b-sanct', () => this.show('sanctum'));
@@ -2671,13 +2758,27 @@ const Menu = {
         <input class="seed" id="seedin" maxlength="16" placeholder="${randomSeed()}" autocomplete="off" autocapitalize="characters" spellcheck="false">
         <button class="btn" id="b-go">Descend</button><button class="btn small" id="b-back">Back</button>`);
       const inp = document.getElementById('seedin'); setTimeout(() => inp.focus(), 50);
-      inp.onkeydown = e => { if (e.key === 'Enter') Game.newRun(inp.value || inp.placeholder); };
-      this.on('b-go', () => Game.newRun(inp.value || inp.placeholder));
+      inp.onkeydown = e => { if (e.key === 'Enter') this.show('class', inp.value || inp.placeholder); };
+      this.on('b-go', () => this.show('class', inp.value || inp.placeholder));
+      this.on('b-back', () => this.show('title'));
+    } else if (name === 'class') {
+      const seed = arg;
+      const cards = Object.entries(CLASSES).map(([id, C]) => {
+        const open = !C.cost || Meta.has(id), hearts = '♥'.repeat(C.hp / 2);
+        const kit = C.kit.map(k => k.name).join(' + ');
+        const btn = open ? `<button class="btn" id="cls-${id}">Play</button>` : `<button class="btn" id="buy-${id}" ${M.embers < C.cost ? 'disabled' : ''}>${C.cost} ◆</button>`;
+        return `<div class="card" style="${open ? '' : 'opacity:.75'}"><div class="grow"><b style="color:${C.c}">${C.n}</b> <span style="color:#ff5470">${hearts}</span>${open ? '' : ' <small style="display:inline">· locked</small>'}<small>${kit}</small><small>${C.perk}</small><small>${C.move}: ${C.moveD}</small></div>${btn}</div>`;
+      }).join('');
+      this.html(`<h2>Choose your class</h2><div class="sub">${seed ? 'Seed <b>' + normSeed(seed) + '</b> · ' : ''}You carry <span class="ember">${M.embers} embers</span></div><div class="list">${cards}</div><button class="btn small" id="b-back">Back</button>`);
+      for (const id of Object.keys(CLASSES)) {
+        this.on('cls-' + id, () => Game.newRun(seed, id));
+        this.on('buy-' + id, () => { const C = CLASSES[id]; if (M.embers >= C.cost) { M.embers -= C.cost; M.unlocks[id] = 1; Meta.save(); Snd.play('item'); this.show('class', seed); } });
+      }
       this.on('b-back', () => this.show('title'));
     } else if (name === 'saved') {
       const rows = M.seeds.map((s, i) => `<div class="card"><div class="grow"><b>${s.seed}</b>${s.secret ? ` <span class="secret">· ${s.secret}</span>` : ''}<small>${s.won ? 'Escaped' : 'Reached ' + (s.level || 'floor ' + s.floor)} · ${s.date}</small></div><button class="btn" id="play-${i}">Play</button><button class="btn" id="del-${i}">✕</button></div>`).join('');
       this.html(`<h2>Saved Seeds</h2><div class="list">${rows || '<div class="sub">No saved seeds yet. Save one from the pause menu or after a run.</div>'}</div><button class="btn small" id="b-back">Back</button>`);
-      M.seeds.forEach((s, i) => { this.on('play-' + i, () => Game.newRun(s.seed)); this.on('del-' + i, () => { M.seeds.splice(i, 1); Meta.save(); this.show('saved'); }); });
+      M.seeds.forEach((s, i) => { this.on('play-' + i, () => this.show('class', s.seed)); this.on('del-' + i, () => { M.seeds.splice(i, 1); Meta.save(); this.show('saved'); }); });
       this.on('b-back', () => this.show('title'));
     } else if (name === 'sanctum') {
       const rows = UNLOCKS.map(u => {
@@ -2710,13 +2811,13 @@ const Menu = {
       const p = World.players[0], won = name === 'win';
       this.html(`<h1 style="font-size:clamp(36px,7vw,60px)">${won ? 'ESCAPED' : 'FALLEN'}</h1>
         <div class="sub">${won ? 'You climbed out of the deep. It will be waiting.' : `Lost on level ${levelLabel(World.world, World.level)}, ${World.theme.n}.`}</div>
-        <div class="stats"><span>Seed</span><span>${Game.seed}</span><span>Level reached</span><span>${levelLabel(World.world, World.level)}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span><span>Foes slain</span><span>${p.kills}</span><span>Items</span><span>${p.items.length}</span><span>Embers banked</span><span class="ember">+${Game.runEmbers}</span></div>
+        <div class="stats"><span>Class</span><span>${CLASSES[Game.cls].n}</span><span>Seed</span><span>${Game.seed}</span><span>Level reached</span><span>${levelLabel(World.world, World.level)}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span><span>Foes slain</span><span>${p.kills}</span><span>Items</span><span>${p.items.length}</span><span>Embers banked</span><span class="ember">+${Game.runEmbers}</span></div>
         <button class="btn" id="b-again">Same Seed Again</button>
         <button class="btn" id="b-new">New Seed</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-sanct">Sanctum · ${M.embers} ◆</button></div>
         <button class="btn small" id="b-title">Title</button>`);
-      this.on('b-again', () => Game.newRun(Game.seed));
-      this.on('b-new', () => Game.newRun());
+      this.on('b-again', () => Game.newRun(Game.seed, Game.cls));
+      this.on('b-new', () => { World.map = null; this.show('class'); });
       this.on('b-save', () => { Game.saveSeed(); document.getElementById('b-save').textContent = 'Saved ✓'; });
       this.on('b-sanct', () => { World.map = null; this.show('sanctum'); });
       this.on('b-title', () => { World.map = null; this.show('title'); });
