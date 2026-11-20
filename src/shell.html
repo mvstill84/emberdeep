@@ -15,7 +15,8 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#0b0816;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 body{font-family:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,Segoe UI,sans-serif;color:#e9e4ff}
-canvas{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+button,input{touch-action:manipulation}
 #menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(8,5,18,.78);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);z-index:5;padding:20px;overflow:auto}
 #menu.hidden{display:none}
 .panel{width:min(560px,100%);text-align:center}

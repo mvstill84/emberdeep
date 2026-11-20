@@ -439,7 +439,12 @@ const World = {
     if (inp.potion) this.usePotion(p);
     if (inp.relic) this.useRelic(p);
     if (inp.swap && p.weapons.length > 1 && !p.stolen) { p.wi = 1 - p.wi; p.charge = 0; p.swapT = 0.12; Snd.play('ui'); }
-    if (inp.use) this.interact(p);
+    // E / USE: tap to take; hold half a second on a weapon or relic to salvage it for embers
+    const nk = this.near, salv = nk && (nk.kind === 'weapon' || nk.kind === 'relic');
+    if (salv) {
+      if (inp.useHeld) { if (p.salvK !== nk) { p.salvK = nk; p.salvT = 0; } if (p.salvT >= 0) { p.salvT += dt; if (p.salvT >= 0.5) { this.salvage(p, nk); p.salvT = -1; } } }
+      else { if (p.salvT > 0 && p.salvK === nk) this.interact(p); p.salvT = 0; p.salvK = null; }
+    } else { p.salvT = inp.useHeld && p.salvT < 0 ? -1 : 0; p.salvK = null; if (inp.use) this.interact(p); }
     if (p.echo > 0) { p.echo -= dt; if (p.echo <= 0) this.swing(p, p.echoW, true); }
     if (p.roll > 0) { p.charge = 0; return; }
     const W2 = p.weapons[p.wi];
@@ -1377,6 +1382,22 @@ const World = {
       p.charge = 0; Snd.play('item'); this.text(p.x, p.y - 24, k.w.name, RARITY[k.w.rarity].c);
     }
     this.pickups = this.pickups.filter(o => !o.gone);
+  },
+  salvageValue(k) { return k.kind === 'relic' ? Math.round(relicById(k.id).cost * 0.1) : [3, 8, 20, 50, 125][k.w.rarity]; },
+  canSalvage(k) { // in Campaign, gear that came from your stash can't be turned into free embers
+    if (k.kind === 'weapon' && Game.mode === 'campaign' && Game.char && Game.char.stash.weapons.some(w => w.uid === k.w.uid)) return false;
+    if (k.kind === 'relic' && Game.mode === 'campaign' && Game.char && Game.char.stash.relics.includes(k.id)) return false;
+    return true;
+  },
+  salvage(p, k) {
+    if (!this.canSalvage(k)) { this.text(k.x, k.y - 20, 'From your stash', '#aaa'); Snd.play('fizzle'); return; }
+    const n = this.salvageValue(k);
+    k.gone = true;
+    if (k.group) for (const o of this.pickups) if (o.group === k.group && o !== k) { o.gone = true; this.burst(o.x, o.y, 10, '#555', 80, 0.4); }
+    for (let i = 0; i < n; i++) this.pickups.push({ kind: 'ember', x: k.x, y: k.y, vx: R.range(-150, 150), vy: R.range(-150, 150), t: 0 });
+    this.burst(k.x, k.y, 24, '#ffb057', 180, 0.5); Snd.play('heavy'); Snd.play('ember');
+    this.text(k.x, k.y - 22, `+${n} embers`, '#ffb057');
+    this.pickups = this.pickups.filter(o => !o.gone); this.near = null;
   },
   chestLoot(x, y) {
     const rng = RNG(hash(Game.seedNum, this.depth, 778));

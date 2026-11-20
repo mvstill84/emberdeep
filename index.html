@@ -15,7 +15,8 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#0b0816;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 body{font-family:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,Segoe UI,sans-serif;color:#e9e4ff}
-canvas{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+button,input{touch-action:manipulation}
 #menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(8,5,18,.78);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);z-index:5;padding:20px;overflow:auto}
 #menu.hidden{display:none}
 .panel{width:min(560px,100%);text-align:center}
@@ -50,7 +51,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 10;
+const BUILD = 11;
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -149,6 +150,9 @@ const Input = {
     addEventListener('keyup', e => this.keys.delete(e.key.toLowerCase()));
     addEventListener('blur', () => { this.keys.clear(); this.mouse.l = this.mouse.r = false; });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
+    // iOS ignores user-scalable=no; eating raw touch events on the canvas stops double-tap zoom
+    for (const ev of ['touchstart', 'touchend', 'touchmove']) canvas.addEventListener(ev, e => e.preventDefault(), { passive: false });
+    for (const ev of ['gesturestart', 'gesturechange', 'dblclick']) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
     canvas.addEventListener('pointerdown', e => {
       Snd.init();
       if (e.pointerType === 'touch') { this.touchDown(e); return; }
@@ -180,8 +184,8 @@ const Input = {
     const w = innerWidth, s = Math.min(w, innerHeight), A = s * 0.115, h = innerHeight - this.badgeH();
     return [
       { id: 'attack', x: w - A * 1.35, y: h - A * 1.35, r: A },
-      { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.62 },
-      { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.55 },
+      { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.75 },
+      { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.68 },
       { id: 'use', x: w - A * 3.05, y: h - A * 2.75, r: A * 0.6 },
       { id: 'potion', x: w - A * 4.95, y: h - A * 0.9, r: A * 0.5 },
       { id: 'relic', x: w - A * 4.75, y: h - A * 2.3, r: A * 0.5 },
@@ -193,7 +197,7 @@ const Input = {
     const x = e.clientX, y = e.clientY;
     for (const b of this.touchButtons()) {
       if (d2(x, y, b.x, b.y) < (b.r * 1.15) ** 2) {
-        if (b.id === 'pause') Game.togglePause(); else if (b.id === 'attack') this.atk = e.pointerId; else this.tbtn[b.id] = true;
+        if (b.id === 'pause') Game.togglePause(); else if (b.id === 'attack') this.atk = e.pointerId; else { this.tbtn[b.id] = true; if (b.id === 'use') this.useId = e.pointerId; }
         return;
       }
     }
@@ -205,6 +209,7 @@ const Input = {
   },
   touchUp(e) {
     if (this.atk === e.pointerId) this.atk = null;
+    if (this.useId === e.pointerId) this.useId = null;
     for (const s of ['L', 'R']) { const st = this.sticks[s]; if (st && st.id === e.pointerId) this.sticks[s] = null; }
   },
   stickVec(st, max) {
@@ -235,7 +240,7 @@ const Input = {
       out.attack = this.mouse.l;
       out.roll = this.pressed.has(' ') || this.pressed.has('shift') || this.mouse.rPressed;
       out.swap = this.pressed.has('q') || this.pressed.has('tab');
-      out.use = this.pressed.has('e');
+      out.use = this.pressed.has('e'); out.useHeld = this.keys.has('e');
       out.potion = this.pressed.has('r'); out.relic = this.pressed.has('f');
     } else if (dev === 'touch') {
       const max = Math.min(innerWidth, innerHeight) * 0.09;
@@ -243,7 +248,7 @@ const Input = {
       out.mx = L.x; out.my = L.y;
       if (Rv.m > 0.15) { out.aim = Math.atan2(Rv.y, Rv.x); out.attack = true; out.assist = true; }
       else if (this.atk !== null) { out.attack = true; out.autoAim = true; }
-      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
+      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.useHeld = this.useId != null; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
     } else {
       const p = this.pads()[+dev.slice(3)] || null;
       if (p) {
@@ -256,7 +261,7 @@ const Input = {
         const tap = i => btn(i) && !prev[i];
         out.attack = btn(7) || btn(5) || (out.aim !== null && Math.hypot(ax, ay) > 0.6);
         out.roll = tap(0) || tap(6);
-        out.swap = tap(3); out.use = tap(2); out.potion = tap(1); out.relic = tap(4);
+        out.swap = tap(3); out.use = tap(2); out.useHeld = btn(2); out.potion = tap(1); out.relic = tap(4);
         if (tap(9)) Game.togglePause();
       }
     }
@@ -1110,7 +1115,12 @@ const World = {
     if (inp.potion) this.usePotion(p);
     if (inp.relic) this.useRelic(p);
     if (inp.swap && p.weapons.length > 1 && !p.stolen) { p.wi = 1 - p.wi; p.charge = 0; p.swapT = 0.12; Snd.play('ui'); }
-    if (inp.use) this.interact(p);
+    // E / USE: tap to take; hold half a second on a weapon or relic to salvage it for embers
+    const nk = this.near, salv = nk && (nk.kind === 'weapon' || nk.kind === 'relic');
+    if (salv) {
+      if (inp.useHeld) { if (p.salvK !== nk) { p.salvK = nk; p.salvT = 0; } if (p.salvT >= 0) { p.salvT += dt; if (p.salvT >= 0.5) { this.salvage(p, nk); p.salvT = -1; } } }
+      else { if (p.salvT > 0 && p.salvK === nk) this.interact(p); p.salvT = 0; p.salvK = null; }
+    } else { p.salvT = inp.useHeld && p.salvT < 0 ? -1 : 0; p.salvK = null; if (inp.use) this.interact(p); }
     if (p.echo > 0) { p.echo -= dt; if (p.echo <= 0) this.swing(p, p.echoW, true); }
     if (p.roll > 0) { p.charge = 0; return; }
     const W2 = p.weapons[p.wi];
@@ -2049,6 +2059,22 @@ const World = {
     }
     this.pickups = this.pickups.filter(o => !o.gone);
   },
+  salvageValue(k) { return k.kind === 'relic' ? Math.round(relicById(k.id).cost * 0.1) : [3, 8, 20, 50, 125][k.w.rarity]; },
+  canSalvage(k) { // in Campaign, gear that came from your stash can't be turned into free embers
+    if (k.kind === 'weapon' && Game.mode === 'campaign' && Game.char && Game.char.stash.weapons.some(w => w.uid === k.w.uid)) return false;
+    if (k.kind === 'relic' && Game.mode === 'campaign' && Game.char && Game.char.stash.relics.includes(k.id)) return false;
+    return true;
+  },
+  salvage(p, k) {
+    if (!this.canSalvage(k)) { this.text(k.x, k.y - 20, 'From your stash', '#aaa'); Snd.play('fizzle'); return; }
+    const n = this.salvageValue(k);
+    k.gone = true;
+    if (k.group) for (const o of this.pickups) if (o.group === k.group && o !== k) { o.gone = true; this.burst(o.x, o.y, 10, '#555', 80, 0.4); }
+    for (let i = 0; i < n; i++) this.pickups.push({ kind: 'ember', x: k.x, y: k.y, vx: R.range(-150, 150), vy: R.range(-150, 150), t: 0 });
+    this.burst(k.x, k.y, 24, '#ffb057', 180, 0.5); Snd.play('heavy'); Snd.play('ember');
+    this.text(k.x, k.y - 22, `+${n} embers`, '#ffb057');
+    this.pickups = this.pickups.filter(o => !o.gone); this.near = null;
+  },
   chestLoot(x, y) {
     const rng = RNG(hash(Game.seedNum, this.depth, 778));
     this.pickups.push({ kind: 'weapon', x, y, t: 0, w: makeWeapon(rng, { depth: this.depth, src: 'chest' }) });
@@ -2334,6 +2360,10 @@ const Render = {
   },
   hazards() {
     const c = this.c;
+    const pl = World.players[0];
+    if (pl && pl.salvT > 0 && pl.salvK && !pl.salvK.gone) { // salvage progress ring
+      const k = pl.salvK; c.strokeStyle = '#ffb057'; c.lineWidth = 3; c.beginPath(); c.arc(k.x, k.y, 22, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(pl.salvT / 0.5, 0, 1)); c.stroke();
+    }
     for (const h of World.hazards) {
       if (h.fire) { c.globalCompositeOperation = 'lighter'; this.drawGlow('#ff7a2a', h.x, h.y, h.r * 1.6, clamp(h.life, 0, 1) * 0.6); this.drawGlow('#ffd27a', h.x, h.y, h.r * 0.7, clamp(h.life, 0, 1) * 0.5); c.globalCompositeOperation = 'source-over'; continue; }
       if (h.arm > 0) {
@@ -3029,6 +3059,8 @@ const HUD = {
     // nearby pickup card
     const k = World.near;
     const key = Input.last === 'touch' ? 'Tap USE' : Input.last === 'pad' ? 'X' : 'E';
+    const hold = Input.last === 'touch' ? 'hold USE' : Input.last === 'pad' ? 'hold X' : 'hold E';
+    this.salvHint = k && (k.kind === 'weapon' || k.kind === 'relic') ? (World.canSalvage(k) ? `  ·  ${hold} to salvage for ${World.salvageValue(k)} embers` : '  ·  from your stash') : '';
     if (k && k.kind === 'weapon') this.compare(c, W, H, p, k.w, key, font);
     else if (k) {
       let title, line1, line2 = '', col;
@@ -3050,7 +3082,7 @@ const HUD = {
       c.textAlign = 'center'; c.fillStyle = col; c.font = font(16, 800); c.fillText(title, W / 2, y + 22);
       c.fillStyle = '#e9e4ff'; c.font = font(13, 600); c.fillText(fitText(c, line1, cw - 20), W / 2, y + 42);
       if (line2) { c.fillStyle = line2.startsWith('✦') ? '#7fffd4' : line2.startsWith('⚠') ? '#ffb057' : 'rgba(233,228,255,0.6)'; c.fillText(fitText(c, line2, cw - 20), W / 2, y + 62); }
-      c.fillStyle = '#ffb057'; c.font = font(12, 800); c.fillText(key, W / 2, y + (line2 ? 92 : 74));
+      c.fillStyle = '#ffb057'; c.font = font(12, 800); c.fillText(key + (k.kind === 'relic' ? this.salvHint || '' : ''), W / 2, y + (line2 ? 92 : 74));
     }
     this.enemyBox(c, W, H, pad, font);
     // banner
@@ -3108,7 +3140,7 @@ const HUD = {
     };
     const h = Math.max(card(cur, x0, 'EQUIPPED', null), card(nw, x1, 'NEW', cur));
     c.textAlign = 'center'; c.fillStyle = '#ffb057'; c.font = font(12, 800);
-    c.fillText(`${key} to ${cur ? 'swap' : 'take'}`, W / 2, y + h + 18);
+    c.fillText(`${key} to ${cur ? 'swap' : 'take'}${this.salvHint || ''}`, W / 2, y + h + 18);
   },
   slots(c, W, H, p, pad, font) { // potion (R) and relic (F)
     const tch = Input.last === 'touch', sz = 44, x0 = pad, y0 = tch ? pad + 140 : H - pad - 64 - 46 - sz - 22;

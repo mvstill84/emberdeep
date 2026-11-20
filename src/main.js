@@ -60,6 +60,8 @@ const HUD = {
     // nearby pickup card
     const k = World.near;
     const key = Input.last === 'touch' ? 'Tap USE' : Input.last === 'pad' ? 'X' : 'E';
+    const hold = Input.last === 'touch' ? 'hold USE' : Input.last === 'pad' ? 'hold X' : 'hold E';
+    this.salvHint = k && (k.kind === 'weapon' || k.kind === 'relic') ? (World.canSalvage(k) ? `  ·  ${hold} to salvage for ${World.salvageValue(k)} embers` : '  ·  from your stash') : '';
     if (k && k.kind === 'weapon') this.compare(c, W, H, p, k.w, key, font);
     else if (k) {
       let title, line1, line2 = '', col;
@@ -81,7 +83,7 @@ const HUD = {
       c.textAlign = 'center'; c.fillStyle = col; c.font = font(16, 800); c.fillText(title, W / 2, y + 22);
       c.fillStyle = '#e9e4ff'; c.font = font(13, 600); c.fillText(fitText(c, line1, cw - 20), W / 2, y + 42);
       if (line2) { c.fillStyle = line2.startsWith('✦') ? '#7fffd4' : line2.startsWith('⚠') ? '#ffb057' : 'rgba(233,228,255,0.6)'; c.fillText(fitText(c, line2, cw - 20), W / 2, y + 62); }
-      c.fillStyle = '#ffb057'; c.font = font(12, 800); c.fillText(key, W / 2, y + (line2 ? 92 : 74));
+      c.fillStyle = '#ffb057'; c.font = font(12, 800); c.fillText(key + (k.kind === 'relic' ? this.salvHint || '' : ''), W / 2, y + (line2 ? 92 : 74));
     }
     this.enemyBox(c, W, H, pad, font);
     // banner
@@ -139,7 +141,7 @@ const HUD = {
     };
     const h = Math.max(card(cur, x0, 'EQUIPPED', null), card(nw, x1, 'NEW', cur));
     c.textAlign = 'center'; c.fillStyle = '#ffb057'; c.font = font(12, 800);
-    c.fillText(`${key} to ${cur ? 'swap' : 'take'}`, W / 2, y + h + 18);
+    c.fillText(`${key} to ${cur ? 'swap' : 'take'}${this.salvHint || ''}`, W / 2, y + h + 18);
   },
   slots(c, W, H, p, pad, font) { // potion (R) and relic (F)
     const tch = Input.last === 'touch', sz = 44, x0 = pad, y0 = tch ? pad + 140 : H - pad - 64 - 46 - sz - 22;

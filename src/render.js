@@ -193,6 +193,10 @@ const Render = {
   },
   hazards() {
     const c = this.c;
+    const pl = World.players[0];
+    if (pl && pl.salvT > 0 && pl.salvK && !pl.salvK.gone) { // salvage progress ring
+      const k = pl.salvK; c.strokeStyle = '#ffb057'; c.lineWidth = 3; c.beginPath(); c.arc(k.x, k.y, 22, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(pl.salvT / 0.5, 0, 1)); c.stroke();
+    }
     for (const h of World.hazards) {
       if (h.fire) { c.globalCompositeOperation = 'lighter'; this.drawGlow('#ff7a2a', h.x, h.y, h.r * 1.6, clamp(h.life, 0, 1) * 0.6); this.drawGlow('#ffd27a', h.x, h.y, h.r * 0.7, clamp(h.life, 0, 1) * 0.5); c.globalCompositeOperation = 'source-over'; continue; }
       if (h.arm > 0) {

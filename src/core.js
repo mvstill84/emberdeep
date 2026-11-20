@@ -97,6 +97,9 @@ const Input = {
     addEventListener('keyup', e => this.keys.delete(e.key.toLowerCase()));
     addEventListener('blur', () => { this.keys.clear(); this.mouse.l = this.mouse.r = false; });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
+    // iOS ignores user-scalable=no; eating raw touch events on the canvas stops double-tap zoom
+    for (const ev of ['touchstart', 'touchend', 'touchmove']) canvas.addEventListener(ev, e => e.preventDefault(), { passive: false });
+    for (const ev of ['gesturestart', 'gesturechange', 'dblclick']) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
     canvas.addEventListener('pointerdown', e => {
       Snd.init();
       if (e.pointerType === 'touch') { this.touchDown(e); return; }
@@ -128,8 +131,8 @@ const Input = {
     const w = innerWidth, s = Math.min(w, innerHeight), A = s * 0.115, h = innerHeight - this.badgeH();
     return [
       { id: 'attack', x: w - A * 1.35, y: h - A * 1.35, r: A },
-      { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.62 },
-      { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.55 },
+      { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.75 },
+      { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.68 },
       { id: 'use', x: w - A * 3.05, y: h - A * 2.75, r: A * 0.6 },
       { id: 'potion', x: w - A * 4.95, y: h - A * 0.9, r: A * 0.5 },
       { id: 'relic', x: w - A * 4.75, y: h - A * 2.3, r: A * 0.5 },
@@ -141,7 +144,7 @@ const Input = {
     const x = e.clientX, y = e.clientY;
     for (const b of this.touchButtons()) {
       if (d2(x, y, b.x, b.y) < (b.r * 1.15) ** 2) {
-        if (b.id === 'pause') Game.togglePause(); else if (b.id === 'attack') this.atk = e.pointerId; else this.tbtn[b.id] = true;
+        if (b.id === 'pause') Game.togglePause(); else if (b.id === 'attack') this.atk = e.pointerId; else { this.tbtn[b.id] = true; if (b.id === 'use') this.useId = e.pointerId; }
         return;
       }
     }
@@ -153,6 +156,7 @@ const Input = {
   },
   touchUp(e) {
     if (this.atk === e.pointerId) this.atk = null;
+    if (this.useId === e.pointerId) this.useId = null;
     for (const s of ['L', 'R']) { const st = this.sticks[s]; if (st && st.id === e.pointerId) this.sticks[s] = null; }
   },
   stickVec(st, max) {
@@ -183,7 +187,7 @@ const Input = {
       out.attack = this.mouse.l;
       out.roll = this.pressed.has(' ') || this.pressed.has('shift') || this.mouse.rPressed;
       out.swap = this.pressed.has('q') || this.pressed.has('tab');
-      out.use = this.pressed.has('e');
+      out.use = this.pressed.has('e'); out.useHeld = this.keys.has('e');
       out.potion = this.pressed.has('r'); out.relic = this.pressed.has('f');
     } else if (dev === 'touch') {
       const max = Math.min(innerWidth, innerHeight) * 0.09;
@@ -191,7 +195,7 @@ const Input = {
       out.mx = L.x; out.my = L.y;
       if (Rv.m > 0.15) { out.aim = Math.atan2(Rv.y, Rv.x); out.attack = true; out.assist = true; }
       else if (this.atk !== null) { out.attack = true; out.autoAim = true; }
-      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
+      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.useHeld = this.useId != null; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
     } else {
       const p = this.pads()[+dev.slice(3)] || null;
       if (p) {
@@ -204,7 +208,7 @@ const Input = {
         const tap = i => btn(i) && !prev[i];
         out.attack = btn(7) || btn(5) || (out.aim !== null && Math.hypot(ax, ay) > 0.6);
         out.roll = tap(0) || tap(6);
-        out.swap = tap(3); out.use = tap(2); out.potion = tap(1); out.relic = tap(4);
+        out.swap = tap(3); out.use = tap(2); out.useHeld = btn(2); out.potion = tap(1); out.relic = tap(4);
         if (tap(9)) Game.togglePause();
       }
     }
