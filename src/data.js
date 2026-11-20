@@ -162,7 +162,8 @@ const EDEF = {
   goblin: { n: 'Goblin', hp: 18, r: 9, sp: 95, cost: 1, c: '#7bd36a', ai: 'rush', touch: 1, embers: 1 },
   goblinArcher: { n: 'Goblin Archer', hp: 20, r: 9, sp: 75, cost: 2, c: '#b5d36a', ai: 'kite', touch: 1, embers: 1, shot: 'arrowE' },
   kobold: { n: 'Kobold Trapper', hp: 16, r: 9, sp: 80, cost: 2, c: '#e0884a', ai: 'trapper', touch: 1, embers: 1 },
-  cube: { n: 'Gelatinous Cube', hp: 75, r: 17, sp: 34, cost: 3, c: '#6fe3c8', ai: 'ooze', touch: 1, embers: 3, engulf: true },
+  cube: { n: 'Gelatinous Cube', hp: 75, r: 24, sp: 34, cost: 3, c: '#6fe3c8', ai: 'ooze', touch: 1, embers: 3, engulf: true, slime: 1, split: 'cubeling' },
+  cubeling: { n: 'Cubeling', hp: 22, r: 12, sp: 46, cost: 1, c: '#6fe3c8', ai: 'ooze', touch: 1, embers: 1, slime: 0.55 },
   stirge: { n: 'Stirge', hp: 11, r: 8, sp: 150, cost: 1, c: '#ff4d6d', ai: 'swoop', touch: 1, embers: 1 },
   skeleton: { n: 'Skeleton', hp: 26, r: 10, sp: 70, cost: 2, c: '#e8e2cf', ai: 'walk', touch: 1, embers: 1, reform: true },
   skelArcher: { n: 'Skeleton Archer', hp: 22, r: 10, sp: 68, cost: 2, c: '#d8d0b8', ai: 'kite', touch: 1, embers: 1, reform: true, shot: 'arrowE' },
@@ -252,17 +253,17 @@ const potionById = id => POTIONS.find(x => x.id === id), relicById = id => RELIC
 const CLASSES = {
   fighter: {
     n: 'Fighter', c: '#ff9a5a', cat: 'melee', hp: 8, cost: 0, move: 'Roll', mana: 0.5, regen: 0.5,
-    perk: '+20% melee damage', moveD: 'Roll, then attack to lunge',
+    perk: '+20% melee damage, harder knockback. Guard blocks one hit and recharges in 10s while a melee weapon is out', moveD: 'Roll, then attack to lunge',
     kit: [{ type: 'sword', name: 'Worn Blade' }, { type: 'bow', name: 'Hunter\'s Bow' }],
   },
   ranger: {
     n: 'Ranger', c: '#8dff7a', cat: 'ranged', hp: 6, cost: 220, move: 'Roll', mana: 0.5, regen: 0.5,
-    perk: '+20% ranged damage, bows draw 20% faster', moveD: 'Rolls scatter caltrops that hurt and slow foes',
+    perk: 'Ranged hits deal up to +35% at long range, bows draw 20% faster. First hit marks a foe to take +25% from everything', moveD: 'Rolls scatter caltrops that hurt and slow foes',
     kit: [{ type: 'bow', name: 'Hunter\'s Bow' }, { type: 'spear', name: 'Ash Spear' }],
   },
   mage: {
     n: 'Mage', c: '#b58bff', cat: 'magic', hp: 6, cost: 220, move: 'Blink', mana: 0.75, regen: 1,
-    perk: 'Bigger mana pool, faster regen', moveD: 'Blink farther than a roll, a bit slower to recharge',
+    perk: 'Bigger mana pool, faster regen, stronger elements. −20% melee damage', moveD: 'Blink farther than a roll, a bit slower to recharge',
     kit: [{ type: 'wand', name: 'Apprentice Wand' }, { type: 'spellbook', spell: 'missiles', name: 'Primer of Magic Missile' }],
   },
 };
@@ -276,6 +277,7 @@ const UNLOCKS = [
   { id: 'codexA', n: 'Arcane Codex', d: 'Adds Splitting Rune, Volatile Sigil and Homing Glyph', cost: 300 },
   { id: 'heart2', n: 'Stout Heart', d: 'Another +1 starting heart', cost: 420, req: 'heart1' },
   { id: 'luck', n: 'Lucky Loot', d: 'Rare, Epic and Legendary drops are more common', cost: 500 },
+  { id: 'armory', n: 'Deep Armory', d: 'Your stash holds 10 more weapons and 4 more relics', cost: 400, camp: true },
   { id: 'relics', n: 'Relic Vault', d: 'Adds Phoenix Feather, Rolling Thunder and Thorn Mantle', cost: 650 },
 ];
 

@@ -99,7 +99,7 @@ const Input = {
   mouse: { x: 0, y: 0, l: false, r: false, rPressed: false },
   last: 'kb', // 'kb' | 'touch' | 'pad'
   sticks: { L: null, R: null }, // touch sticks {id, ox, oy, x, y}
-  tbtn: { roll: false, swap: false, use: false, potion: false, relic: false }, // touch button presses this frame
+  tbtn: { roll: false, swap: false, use: false, bag: false, potion: false, relic: false }, // touch button presses this frame
   atk: null, // pointer id holding the touch attack button
   padPrev: [],
   init(canvas) {
@@ -143,6 +143,7 @@ const Input = {
       { id: 'roll', x: w - A * 3.5, y: h - A * 1.12, r: A * 0.88 },
       { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.8 },
       { id: 'use', x: w - A * 3.05, y: h - A * 2.75, r: A * 0.6 },
+      { id: 'bag', x: w - A * 3.05, y: h - A * 4.05, r: A * 0.55 },
       { id: 'potion', x: w - A * 4.95, y: h - A * 0.9, r: A * 0.5 },
       { id: 'relic', x: w - A * 4.75, y: h - A * 2.3, r: A * 0.5 },
       { id: 'pause', x: w - s * 0.06, y: s * 0.06 + 4, r: s * 0.042 },
@@ -152,6 +153,7 @@ const Input = {
     this.last = 'touch';
     const x = e.clientX, y = e.clientY;
     for (const b of this.touchButtons()) {
+      if (b.id === 'bag' && !World.canBag()) continue; // only there when something can go in the bag
       if (d2(x, y, b.x, b.y) < (b.r * 1.15) ** 2) {
         if (b.id === 'pause') Game.togglePause(); else if (b.id === 'attack') this.atk = e.pointerId; else { this.tbtn[b.id] = true; if (b.id === 'use') this.useId = e.pointerId; }
         return;
@@ -196,7 +198,7 @@ const Input = {
       out.attack = this.mouse.l;
       out.roll = this.pressed.has(' ') || this.pressed.has('shift') || this.mouse.rPressed;
       out.swap = this.pressed.has('q') || this.pressed.has('tab');
-      out.use = this.pressed.has('e'); out.useHeld = this.keys.has('e');
+      out.use = this.pressed.has('e'); out.useHeld = this.keys.has('e'); out.bag = this.pressed.has('v');
       out.potion = this.pressed.has('r'); out.relic = this.pressed.has('f');
     } else if (dev === 'touch') {
       const max = Math.min(innerWidth, innerHeight) * 0.09;
@@ -204,7 +206,7 @@ const Input = {
       out.mx = L.x; out.my = L.y;
       if (Rv.m > 0.15) { out.aim = Math.atan2(Rv.y, Rv.x); out.attack = true; out.assist = true; }
       else if (this.atk !== null) { out.attack = true; out.autoAim = true; }
-      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.useHeld = this.useId != null; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
+      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.useHeld = this.useId != null; out.bag = this.tbtn.bag; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
     } else {
       const p = this.pads()[+dev.slice(3)] || null;
       if (p) {
@@ -217,7 +219,7 @@ const Input = {
         const tap = i => btn(i) && !prev[i];
         out.attack = btn(7) || btn(5) || (out.aim !== null && Math.hypot(ax, ay) > 0.6);
         out.roll = tap(0) || tap(6);
-        out.swap = tap(3); out.use = tap(2); out.useHeld = btn(2); out.potion = tap(1); out.relic = tap(4);
+        out.swap = tap(3); out.use = tap(2); out.useHeld = btn(2); out.bag = tap(13); out.potion = tap(1); out.relic = tap(4);
         if (tap(9)) Game.togglePause();
       }
     }

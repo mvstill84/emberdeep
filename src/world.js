@@ -6,7 +6,7 @@ const solidT = t => t === VOID || t === WALL || t === PILLAR || t === SHUT;
 
 const World = {
   world: 1, level: 1, depth: 1, theme: null, map: null, roomId: null, rooms: [], room: null, locked: false, waves: [], waveT: 0,
-  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], ptraps: [], lastHit: null, timeStopT: 0, decoy: null, gnome: null, bossDark: false, thorns: new Map(), rally: false,
+  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], slime: [], zones: [], warns: [], ptraps: [], lastHit: null, timeStopT: 0, decoy: null, gnome: null, bossDark: false, thorns: new Map(), rally: false,
   flow: null, flowKey: -1, flowT: 0, boss: null, time: 0,
 
   // ---------- generation ----------
@@ -210,7 +210,7 @@ const World = {
   // ---------- run setup ----------
   startLevel(w, l, keepPlayers) {
     this.gen(w, l);
-    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; this.bossDark = false; this.thorns = new Map(); for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
+    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.slime = []; this.mark = null; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; this.bossDark = false; this.thorns = new Map(); for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     this.placeKeyAndChest();
@@ -225,7 +225,7 @@ const World = {
   },
   baseStats() {
     const cls = Game.cls || 'fighter', lvl = Game.mode === 'campaign' && Game.char ? Game.char.lvl : 1;
-    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
+    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : cls === 'mage' ? 0.8 : 1, rangedDmg: 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
   },
   // Rebuild stats from scratch from the items held, so items can be dropped cleanly
   recalc(p) {
@@ -252,7 +252,7 @@ const World = {
     const maxMana = Math.round(100 * C.mana);
     return {
       slot, src: 'auto', x: 0, y: 0, r: 9, vx: 0, vy: 0, hp, maxHp: hp, baseHp: hp, parryT: 0, swapT: 0, lungeQ: false, inv: 0, roll: 0, rollCd: 0, rdx: 1, rdy: 0, aim: 0, slowT: 0,
-      cls: Game.cls || 'fighter', weapons: ch ? Campaign.loadoutWeapons(ch) : C.kit.map(starter),
+      cls: Game.cls || 'fighter', guard: (Game.cls || 'fighter') === 'fighter', guardT: 0, weapons: ch ? Campaign.loadoutWeapons(ch) : C.kit.map(starter),
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
@@ -389,14 +389,15 @@ const World = {
     else if (inp.aim !== null) p.aim = inp.assist ? this.assist(p, inp.aim) : inp.aim;
     else if (inp.device !== 'kb' && (inp.mx || inp.my) && !p.charge) p.aim = Math.atan2(inp.my, inp.mx);
     p.inv -= dt; p.rollCd -= dt; p.slowT -= dt; p.lungeWin -= dt; p.manaIdle += dt; p.parryT -= dt; p.swapT -= dt;
-    p.mana = Math.min(p.maxMana, p.mana + dt * (p.exhausted ? 7 : p.manaIdle > 0.9 ? 34 : 14) * p.manaRegen); p.blinkInv -= dt; p.thornCd = (p.thornCd || 0) - dt;
-    if (p.exhausted && p.mana >= p.maxMana) { p.exhausted = false; Snd.play('charge'); }
+    p.mana = Math.min(p.maxMana, p.mana + dt * (p.exhausted ? 10 : p.manaIdle > 0.9 ? 34 : 14) * p.manaRegen); p.blinkInv -= dt; p.thornCd = (p.thornCd || 0) - dt;
+    if (p.exhausted && p.mana >= p.maxMana * 0.5) { p.exhausted = false; Snd.play('charge'); }
     if (p.stolen) { // a gelatinous cube is holding one of your weapons
       p.stolen.t -= dt;
       if (p.stolen.t <= 0 || p.stolen.by.dead) { this.text(p.x, p.y - 24, 'Weapon recovered!', '#6fe3c8'); if (p.stolen.by) p.stolen.by.holding = null; p.stolen = null; }
       else if (p.wi === p.stolen.idx) p.wi = 1 - p.stolen.idx;
     }
     for (const ww of p.weapons) ww.cdT = (ww.cdT || 0) - dt; // each weapon keeps its own cooldown
+    if (p.cls === 'fighter' && !p.guard && p.weapons[p.wi].cat === 'melee') { p.guardT += dt; if (p.guardT >= 10) { p.guard = true; p.guardT = 0; this.text(p.x, p.y - 24, 'Guard up', '#cfe3ff'); Snd.play('charge'); } }
     const w = p.weapons[p.wi], melee = w.cat === 'melee';
     // swings keep cutting enemy shots for as long as the blade is moving
     for (const s of p.swings) { s.t += dt; if (s.t < s.dur + 0.1) this.cutShots(p, s); if (s.t <= s.dur + 0.03) this.swingHits(p, s); }
@@ -429,7 +430,7 @@ const World = {
         else { p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.trapT = 0; Snd.play('roll'); }
         for (const h of p.hooks.roll) h();
       }
-      const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1);
+      const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.slimed ? 0.6 : 1);
       const k = 1 - Math.exp(-18 * dt);
       p.vx = lerp(p.vx, inp.mx * sp, k); p.vy = lerp(p.vy, inp.my * sp, k);
       this.move(p, p.vx * dt, p.vy * dt);
@@ -440,6 +441,7 @@ const World = {
     if (inp.relic) this.useRelic(p);
     if (inp.swap && p.weapons.length > 1 && !p.stolen) { p.wi = 1 - p.wi; p.charge = 0; p.swapT = 0.12; Snd.play('ui'); }
     // E / USE: tap to take; hold half a second on a weapon or relic to salvage it for embers
+    if (inp.bag) this.toBag(p);
     const nk = this.near, salv = nk && (nk.kind === 'weapon' || nk.kind === 'relic');
     if (salv) {
       if (inp.useHeld) { if (p.salvK !== nk) { p.salvK = nk; p.salvT = 0; } if (p.salvT >= 0) { p.salvT += dt; if (p.salvT >= 0.5) { this.salvage(p, nk); p.salvT = -1; } } }
@@ -566,7 +568,7 @@ const World = {
     const pr = Object.assign({
       x: p.x + Math.cos(a) * 12, y: p.y + Math.sin(a) * 12, owner: 'p', life: 1.1, pierce: hasQ(w, 'pierce') ? 1 : 0,
       bounce: p.st.bounce, elem: w.elem, homing: p.st.homing + (hasQ(w, 'seeking') ? 2.5 : 0) + (w.elem === 'arcane' ? 1.2 : 0),
-      hit: new Set(), depth: 0, p, leech: hasQ(w, 'leech'), color: ELEM[w.elem].c, stun: hasQ(w, 'stun') && R.chance(0.25) ? 0.7 : 0,
+      hit: new Set(), depth: 0, p, wcat: w.cat, leech: hasQ(w, 'leech'), color: ELEM[w.elem].c, stun: hasQ(w, 'stun') && R.chance(0.25) ? 0.7 : 0,
     }, o);
     pr.vx = Math.cos(a) * o.speed; pr.vy = Math.sin(a) * o.speed;
     if (pr.kind !== 'spark' && pr.kind !== 'bomb') pr.pierce += p.st.pierceAdd;
@@ -686,6 +688,11 @@ const World = {
       if (Math.abs(angDiff(e.face, from)) < 0.9) dmg *= 0.7; // owlbears tank frontal hits a bit
     }
     if (src.melee && e.freeze > 0 && this.hasSyn('shatter')) dmg *= 3;
+    if (p.cls === 'ranger') {
+      if (src.proj && src.proj.wcat === 'ranged') dmg *= 1 + 0.35 * clamp((Math.hypot(e.x - p.x, e.y - p.y) - 90) / 240, 0, 1); // farther shots hit harder
+      if (!src.burn && (!this.mark || this.mark.dead) && e.type !== 'banner' && e.type !== 'crystal') { this.mark = e; this.text(e.x, e.y - e.r - 14, 'Marked', '#ff6b6b'); }
+      if (this.mark === e) dmg *= 1.25;
+    }
     e.hp -= dmg; e.flash = 0.09;
     if (src.crit) this.text(e.x, e.y - e.r - 6, Math.round(dmg) + '!', '#ffd27a');
     if (src.stun) e.stun = Math.max(e.stun || 0, src.stun * (e.boss ? 0.12 : 1));
@@ -696,7 +703,7 @@ const World = {
     const charging = e.boss || e.mini || e.D.anchored || (e.D.ai === 'charger' && e.state === 2) || (e.st > 0 && ['rush', 'walk', 'flank'].includes(e.D.ai)) || (e.D.ai === 'swoop' && e.state === 1);
     if (!charging) {
       const K = src.melee ? ({ sword: [130, 0.15], spear: [190, 0.22], axe: [260, 0.3], hammer: [360, 0.42] }[src.wtype] || [160, 0.15]) : src.blunt ? [260, 0.2] : [70, 0];
-      const heavy = e.D.hp > 70 ? 0.5 : 1;
+      const heavy = (e.D.hp > 70 ? 0.5 : 1) * (src.melee && p.cls === 'fighter' ? 1.3 : 1);
       e.kx += kx * K[0] * heavy; e.ky += ky * K[0] * heavy;
       if (K[1]) e.stagger = Math.max(e.stagger || 0, K[1] * heavy);
     }
@@ -708,9 +715,10 @@ const World = {
       const elems = new Set([src.elem]);
       if (depth === 0 || src.shard) for (const el of p.st.addElem) elems.add(el);
       if (src.extraElem) elems.add(src.extraElem);
-      if (elems.has('fire')) { e.burn = 2.6 * pow; e.burnDmg = Math.max(e.burnDmg || 0, 3 * p.st.dmg * pow); }
-      if (elems.has('frost')) { e.chill = 1.8 * pow; if (R.chance((e.boss ? 0.02 : 0.12) * pow)) e.freeze = 1.1; }
-      if (elems.has('storm') && depth < 2 && R.chance(0.3 * pow)) this.chain(e, dmg * 0.5, depth + 1, p);
+      const mg = p.cls === 'mage';
+      if (elems.has('fire')) { e.burn = 2.6 * pow * (mg ? 1.5 : 1); e.burnDmg = Math.max(e.burnDmg || 0, 3 * p.st.dmg * pow); }
+      if (elems.has('frost')) { e.chill = 1.8 * pow; if (R.chance((e.boss ? 0.02 : 0.12) * pow * (mg ? 2 : 1))) e.freeze = 1.1; }
+      if (elems.has('storm') && depth < 2 && R.chance(0.3 * pow)) this.chain(e, dmg * 0.5, depth + 1, p, e.x, e.y, mg ? 3 : 2);
       if (this.hasSyn('steam') && e.burn > 0 && e.chill > 0 && !src.steam && depth < 3) {
         e.burn = 0; e.chill = 0; this.explode(e.x, e.y, 60, dmg * 0.9 + 8 * p.st.dmg, depth + 1, '#e8f6ff', { steam: true });
       }
@@ -727,6 +735,10 @@ const World = {
       return;
     }
     e.dead = true;
+    if (e.D.split) for (const s of [-1, 1]) { // a cube splits into two smaller ones
+      const t = this.freeSpot(e.x + s * 14, e.y), m = this.makeEnemy(e.D.split, t.x, t.y);
+      m.spawnT = 0.15; m.kx = s * 220; m.ky = R.range(-60, 60); this.enemies.push(m);
+    }
     this.burst(e.x, e.y, e.boss ? 80 : 18, e.D.c, e.boss ? 320 : 200, 0.6);
     this.burst(e.x, e.y, 8, '#ffffff', 120, 0.3);
     Snd.play('kill'); Render.kick(e.boss ? 14 : 3);
@@ -784,6 +796,10 @@ const World = {
   hurt(p, n = 1) {
     if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.blinkInv > 0 || p.dead || Game.state !== 'play') return;
     if (p.relic === 'displace' && p.dispReady) { p.dispReady = false; p.inv = 0.8; this.text(p.x, p.y - 24, 'Missed!', '#7fd8ff'); this.burst(p.x, p.y, 14, '#7fd8ff', 160, 0.4); Snd.play('blink'); return; }
+    if (p.guard) { // Fighter's Guard eats one hit
+      p.guard = false; p.guardT = 0; p.inv = 0.8; this.text(p.x, p.y - 24, 'Blocked!', '#cfe3ff'); this.burst(p.x, p.y, 18, '#cfe3ff', 200, 0.4); Snd.play('deflect'); Render.kick(4);
+      return;
+    }
     p.hp -= n * (p.st.hurtMult || 1); p.inv = 1.15;
     Snd.play('hurt'); Render.kick(9); Game.hitstop(0.09); Render.flash = 0.25;
     this.burst(p.x, p.y, 20, '#ff4060', 220, 0.5);
@@ -849,7 +865,12 @@ const World = {
         if (e.cool <= 0 && dist < range && this.los(e.x, e.y, p.x, p.y)) { e.st = e.D.ai === 'rush' ? 0.28 : 0.22; const s = sp * (e.D.ai === 'rush' ? 2.6 : 2.4); e.dvx = Math.cos(toP) * s; e.dvy = Math.sin(toP) * s; e.cool = R.range(1.3, 2.2); }
         break;
       }
-      case 'ooze': go(this.flowDir(e, p), sp); e.face = toP; break;
+      case 'ooze': {
+        go(this.flowDir(e, p), sp); e.face = toP;
+        e.slimeT = (e.slimeT || 0) - dt; // leaves a slick that outlives it
+        if (e.D.slime && e.slimeT <= 0) { e.slimeT = 0.16; this.slime.push({ x: e.x + R.range(-3, 3), y: e.y + R.range(-3, 3), r: e.r * 0.95 * (0.85 + R() * 0.3), life: 5, max: 5 }); if (this.slime.length > 220) this.slime.shift(); }
+        break;
+      }
       case 'kite': {
         const see = this.los(e.x, e.y, p.x, p.y);
         if (e.st > 0) {
@@ -955,8 +976,8 @@ const World = {
     if (mx || my) this.move(e, mx * dt, my * dt);
     if (!p.isDecoy && !e.air && dist < e.r + p.r - 2 && p.inv <= 0 && p.roll <= 0.03 && p.blinkInv <= 0 && p.lunge <= 0) {
       if (e.D.engulf) {
-        p.slowT = 1.6;
-        if (!p.stolen && p.weapons.length > 1 && !e.holding) { p.stolen = { idx: p.wi, t: 4, by: e }; e.holding = p.weapons[p.wi]; p.wi = 1 - p.wi; p.charge = 0; this.text(p.x, p.y - 24, 'Weapon engulfed!', '#6fe3c8'); Snd.play('fizzle'); }
+        p.slowT = 2.2;
+        if (!p.stolen && p.weapons.length > 1 && !e.holding) { p.stolen = { idx: p.wi, t: 5, by: e }; e.holding = p.weapons[p.wi]; p.wi = 1 - p.wi; p.charge = 0; this.text(p.x, p.y - 24, 'Weapon engulfed!', '#6fe3c8'); Snd.play('fizzle'); }
       }
       this.hurt(p, e.D.touch);
     }
@@ -1274,6 +1295,9 @@ const World = {
   // ---------- hazards (kobold traps) and spell zones ----------
   updHazards(dt) {
     const p = this.players[0];
+    for (const s of this.slime) s.life -= dt;
+    if (this.slime.length && this.slime[0].life <= 0) this.slime = this.slime.filter(s => s.life > 0);
+    p.slimed = !p.dead && this.slime.some(s => s.life > 0.6 && d2(s.x, s.y, p.x, p.y) < (s.r * 0.8) ** 2);
     for (const h of this.hazards) {
       h.arm -= dt; h.life -= dt;
       if (h.fire) { if (R.chance(dt * 6)) this.part(h.x + R.range(-10, 10), h.y, 0, -50, 0.5, 3, '#ff7a2a', true); if (!p.dead && d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 4) ** 2 && p.roll <= 0.03 && p.inv <= 0) this.hurt(p, 1); continue; }
@@ -1334,7 +1358,7 @@ const World = {
       k.gone = true; const cp = Game.char.corpse, L = cp.loot; let i = 0;
       const at = () => { const a = i++ * 1.3; return this.freeSpot(k.x + Math.cos(a) * 34, k.y + Math.sin(a) * 34); };
       for (const w of L.weapons) this.pickups.push({ kind: 'weapon', w, ...at(), t: 0 });
-      if (L.relic) this.pickups.push({ kind: 'relic', id: L.relic, ...at(), t: 0 });
+      for (const id of L.relics || (L.relic ? [L.relic] : [])) this.pickups.push({ kind: 'relic', id, ...at(), t: 0 });
       if (L.potion) this.pickups.push({ kind: 'potion', id: L.potion, ...at(), t: 0 });
       Game.char.corpse = null; Meta.save();
       Game.banner('Remains recovered', 'Beat the boss to keep it all', 2); Snd.play('synergy'); this.burst(k.x, k.y, 30, '#9fd8ff', 200, 0.6);
@@ -1382,6 +1406,25 @@ const World = {
       p.charge = 0; Snd.play('item'); this.text(p.x, p.y - 24, k.w.name, RARITY[k.w.rarity].c);
     }
     this.pickups = this.pickups.filter(o => !o.gone);
+  },
+  // Campaign: send a floor weapon or relic into the Void Bag instead of carrying or scrapping it
+  canBag() { const k = this.near; return Game.mode === 'campaign' && !!Game.char && !!k && (k.kind === 'weapon' || k.kind === 'relic'); },
+  toBag(p) {
+    if (!this.canBag()) return;
+    const k = this.near, h = Game.char;
+    if (!this.canSalvage(k)) { // already yours: it just goes home
+      k.gone = true; this.text(k.x, k.y - 22, 'Back to your stash', '#b98cff'); this.burst(k.x, k.y, 18, '#9a6bff', 140, 0.5); Snd.play('portal');
+      this.pickups = this.pickups.filter(o => !o.gone); this.near = null; return;
+    }
+    const cap = Campaign.cap(h), wpn = k.kind === 'weapon';
+    const used = wpn ? h.stash.weapons.length + Game.bag.weapons.length : h.stash.relics.length + Game.bag.relics.length;
+    if (used >= (wpn ? cap.w : cap.r)) { this.text(k.x, k.y - 22, 'Stash is full', '#ff8a9a'); Snd.play('fizzle'); return; }
+    k.gone = true;
+    if (k.group) for (const o of this.pickups) if (o.group === k.group && o !== k) { o.gone = true; this.burst(o.x, o.y, 10, '#555', 80, 0.4); }
+    if (wpn) Game.bag.weapons.push(k.w); else Game.bag.relics.push(k.id);
+    this.burst(k.x, k.y, 26, '#9a6bff', 170, 0.6); Snd.play('portal');
+    this.text(k.x, k.y - 22, 'Into the Void Bag', '#b98cff');
+    this.pickups = this.pickups.filter(o => !o.gone); this.near = null;
   },
   salvageValue(k) { return k.kind === 'relic' ? Math.round(relicById(k.id).cost * 0.1) : [3, 8, 20, 50, 125][k.w.rarity]; },
   canSalvage(k) { // in Campaign, gear that came from your stash can't be turned into free embers

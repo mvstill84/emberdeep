@@ -52,7 +52,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 14;
+const BUILD = 16;
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -153,7 +153,7 @@ const Input = {
   mouse: { x: 0, y: 0, l: false, r: false, rPressed: false },
   last: 'kb', // 'kb' | 'touch' | 'pad'
   sticks: { L: null, R: null }, // touch sticks {id, ox, oy, x, y}
-  tbtn: { roll: false, swap: false, use: false, potion: false, relic: false }, // touch button presses this frame
+  tbtn: { roll: false, swap: false, use: false, bag: false, potion: false, relic: false }, // touch button presses this frame
   atk: null, // pointer id holding the touch attack button
   padPrev: [],
   init(canvas) {
@@ -197,6 +197,7 @@ const Input = {
       { id: 'roll', x: w - A * 3.5, y: h - A * 1.12, r: A * 0.88 },
       { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.8 },
       { id: 'use', x: w - A * 3.05, y: h - A * 2.75, r: A * 0.6 },
+      { id: 'bag', x: w - A * 3.05, y: h - A * 4.05, r: A * 0.55 },
       { id: 'potion', x: w - A * 4.95, y: h - A * 0.9, r: A * 0.5 },
       { id: 'relic', x: w - A * 4.75, y: h - A * 2.3, r: A * 0.5 },
       { id: 'pause', x: w - s * 0.06, y: s * 0.06 + 4, r: s * 0.042 },
@@ -206,6 +207,7 @@ const Input = {
     this.last = 'touch';
     const x = e.clientX, y = e.clientY;
     for (const b of this.touchButtons()) {
+      if (b.id === 'bag' && !World.canBag()) continue; // only there when something can go in the bag
       if (d2(x, y, b.x, b.y) < (b.r * 1.15) ** 2) {
         if (b.id === 'pause') Game.togglePause(); else if (b.id === 'attack') this.atk = e.pointerId; else { this.tbtn[b.id] = true; if (b.id === 'use') this.useId = e.pointerId; }
         return;
@@ -250,7 +252,7 @@ const Input = {
       out.attack = this.mouse.l;
       out.roll = this.pressed.has(' ') || this.pressed.has('shift') || this.mouse.rPressed;
       out.swap = this.pressed.has('q') || this.pressed.has('tab');
-      out.use = this.pressed.has('e'); out.useHeld = this.keys.has('e');
+      out.use = this.pressed.has('e'); out.useHeld = this.keys.has('e'); out.bag = this.pressed.has('v');
       out.potion = this.pressed.has('r'); out.relic = this.pressed.has('f');
     } else if (dev === 'touch') {
       const max = Math.min(innerWidth, innerHeight) * 0.09;
@@ -258,7 +260,7 @@ const Input = {
       out.mx = L.x; out.my = L.y;
       if (Rv.m > 0.15) { out.aim = Math.atan2(Rv.y, Rv.x); out.attack = true; out.assist = true; }
       else if (this.atk !== null) { out.attack = true; out.autoAim = true; }
-      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.useHeld = this.useId != null; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
+      out.roll = this.tbtn.roll; out.swap = this.tbtn.swap; out.use = this.tbtn.use; out.useHeld = this.useId != null; out.bag = this.tbtn.bag; out.potion = this.tbtn.potion; out.relic = this.tbtn.relic;
     } else {
       const p = this.pads()[+dev.slice(3)] || null;
       if (p) {
@@ -271,7 +273,7 @@ const Input = {
         const tap = i => btn(i) && !prev[i];
         out.attack = btn(7) || btn(5) || (out.aim !== null && Math.hypot(ax, ay) > 0.6);
         out.roll = tap(0) || tap(6);
-        out.swap = tap(3); out.use = tap(2); out.useHeld = btn(2); out.potion = tap(1); out.relic = tap(4);
+        out.swap = tap(3); out.use = tap(2); out.useHeld = btn(2); out.bag = tap(13); out.potion = tap(1); out.relic = tap(4);
         if (tap(9)) Game.togglePause();
       }
     }
@@ -560,7 +562,8 @@ const EDEF = {
   goblin: { n: 'Goblin', hp: 18, r: 9, sp: 95, cost: 1, c: '#7bd36a', ai: 'rush', touch: 1, embers: 1 },
   goblinArcher: { n: 'Goblin Archer', hp: 20, r: 9, sp: 75, cost: 2, c: '#b5d36a', ai: 'kite', touch: 1, embers: 1, shot: 'arrowE' },
   kobold: { n: 'Kobold Trapper', hp: 16, r: 9, sp: 80, cost: 2, c: '#e0884a', ai: 'trapper', touch: 1, embers: 1 },
-  cube: { n: 'Gelatinous Cube', hp: 75, r: 17, sp: 34, cost: 3, c: '#6fe3c8', ai: 'ooze', touch: 1, embers: 3, engulf: true },
+  cube: { n: 'Gelatinous Cube', hp: 75, r: 24, sp: 34, cost: 3, c: '#6fe3c8', ai: 'ooze', touch: 1, embers: 3, engulf: true, slime: 1, split: 'cubeling' },
+  cubeling: { n: 'Cubeling', hp: 22, r: 12, sp: 46, cost: 1, c: '#6fe3c8', ai: 'ooze', touch: 1, embers: 1, slime: 0.55 },
   stirge: { n: 'Stirge', hp: 11, r: 8, sp: 150, cost: 1, c: '#ff4d6d', ai: 'swoop', touch: 1, embers: 1 },
   skeleton: { n: 'Skeleton', hp: 26, r: 10, sp: 70, cost: 2, c: '#e8e2cf', ai: 'walk', touch: 1, embers: 1, reform: true },
   skelArcher: { n: 'Skeleton Archer', hp: 22, r: 10, sp: 68, cost: 2, c: '#d8d0b8', ai: 'kite', touch: 1, embers: 1, reform: true, shot: 'arrowE' },
@@ -650,17 +653,17 @@ const potionById = id => POTIONS.find(x => x.id === id), relicById = id => RELIC
 const CLASSES = {
   fighter: {
     n: 'Fighter', c: '#ff9a5a', cat: 'melee', hp: 8, cost: 0, move: 'Roll', mana: 0.5, regen: 0.5,
-    perk: '+20% melee damage', moveD: 'Roll, then attack to lunge',
+    perk: '+20% melee damage, harder knockback. Guard blocks one hit and recharges in 10s while a melee weapon is out', moveD: 'Roll, then attack to lunge',
     kit: [{ type: 'sword', name: 'Worn Blade' }, { type: 'bow', name: 'Hunter\'s Bow' }],
   },
   ranger: {
     n: 'Ranger', c: '#8dff7a', cat: 'ranged', hp: 6, cost: 220, move: 'Roll', mana: 0.5, regen: 0.5,
-    perk: '+20% ranged damage, bows draw 20% faster', moveD: 'Rolls scatter caltrops that hurt and slow foes',
+    perk: 'Ranged hits deal up to +35% at long range, bows draw 20% faster. First hit marks a foe to take +25% from everything', moveD: 'Rolls scatter caltrops that hurt and slow foes',
     kit: [{ type: 'bow', name: 'Hunter\'s Bow' }, { type: 'spear', name: 'Ash Spear' }],
   },
   mage: {
     n: 'Mage', c: '#b58bff', cat: 'magic', hp: 6, cost: 220, move: 'Blink', mana: 0.75, regen: 1,
-    perk: 'Bigger mana pool, faster regen', moveD: 'Blink farther than a roll, a bit slower to recharge',
+    perk: 'Bigger mana pool, faster regen, stronger elements. −20% melee damage', moveD: 'Blink farther than a roll, a bit slower to recharge',
     kit: [{ type: 'wand', name: 'Apprentice Wand' }, { type: 'spellbook', spell: 'missiles', name: 'Primer of Magic Missile' }],
   },
 };
@@ -674,6 +677,7 @@ const UNLOCKS = [
   { id: 'codexA', n: 'Arcane Codex', d: 'Adds Splitting Rune, Volatile Sigil and Homing Glyph', cost: 300 },
   { id: 'heart2', n: 'Stout Heart', d: 'Another +1 starting heart', cost: 420, req: 'heart1' },
   { id: 'luck', n: 'Lucky Loot', d: 'Rare, Epic and Legendary drops are more common', cost: 500 },
+  { id: 'armory', n: 'Deep Armory', d: 'Your stash holds 10 more weapons and 4 more relics', cost: 400, camp: true },
   { id: 'relics', n: 'Relic Vault', d: 'Adds Phoenix Feather, Rolling Thunder and Thorn Mantle', cost: 650 },
 ];
 
@@ -692,7 +696,7 @@ const solidT = t => t === VOID || t === WALL || t === PILLAR || t === SHUT;
 
 const World = {
   world: 1, level: 1, depth: 1, theme: null, map: null, roomId: null, rooms: [], room: null, locked: false, waves: [], waveT: 0,
-  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], ptraps: [], lastHit: null, timeStopT: 0, decoy: null, gnome: null, bossDark: false, thorns: new Map(), rally: false,
+  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], slime: [], zones: [], warns: [], ptraps: [], lastHit: null, timeStopT: 0, decoy: null, gnome: null, bossDark: false, thorns: new Map(), rally: false,
   flow: null, flowKey: -1, flowT: 0, boss: null, time: 0,
 
   // ---------- generation ----------
@@ -896,7 +900,7 @@ const World = {
   // ---------- run setup ----------
   startLevel(w, l, keepPlayers) {
     this.gen(w, l);
-    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; this.bossDark = false; this.thorns = new Map(); for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
+    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.slime = []; this.mark = null; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; this.bossDark = false; this.thorns = new Map(); for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     this.placeKeyAndChest();
@@ -911,7 +915,7 @@ const World = {
   },
   baseStats() {
     const cls = Game.cls || 'fighter', lvl = Game.mode === 'campaign' && Game.char ? Game.char.lvl : 1;
-    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
+    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : cls === 'mage' ? 0.8 : 1, rangedDmg: 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
   },
   // Rebuild stats from scratch from the items held, so items can be dropped cleanly
   recalc(p) {
@@ -938,7 +942,7 @@ const World = {
     const maxMana = Math.round(100 * C.mana);
     return {
       slot, src: 'auto', x: 0, y: 0, r: 9, vx: 0, vy: 0, hp, maxHp: hp, baseHp: hp, parryT: 0, swapT: 0, lungeQ: false, inv: 0, roll: 0, rollCd: 0, rdx: 1, rdy: 0, aim: 0, slowT: 0,
-      cls: Game.cls || 'fighter', weapons: ch ? Campaign.loadoutWeapons(ch) : C.kit.map(starter),
+      cls: Game.cls || 'fighter', guard: (Game.cls || 'fighter') === 'fighter', guardT: 0, weapons: ch ? Campaign.loadoutWeapons(ch) : C.kit.map(starter),
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
@@ -1075,14 +1079,15 @@ const World = {
     else if (inp.aim !== null) p.aim = inp.assist ? this.assist(p, inp.aim) : inp.aim;
     else if (inp.device !== 'kb' && (inp.mx || inp.my) && !p.charge) p.aim = Math.atan2(inp.my, inp.mx);
     p.inv -= dt; p.rollCd -= dt; p.slowT -= dt; p.lungeWin -= dt; p.manaIdle += dt; p.parryT -= dt; p.swapT -= dt;
-    p.mana = Math.min(p.maxMana, p.mana + dt * (p.exhausted ? 7 : p.manaIdle > 0.9 ? 34 : 14) * p.manaRegen); p.blinkInv -= dt; p.thornCd = (p.thornCd || 0) - dt;
-    if (p.exhausted && p.mana >= p.maxMana) { p.exhausted = false; Snd.play('charge'); }
+    p.mana = Math.min(p.maxMana, p.mana + dt * (p.exhausted ? 10 : p.manaIdle > 0.9 ? 34 : 14) * p.manaRegen); p.blinkInv -= dt; p.thornCd = (p.thornCd || 0) - dt;
+    if (p.exhausted && p.mana >= p.maxMana * 0.5) { p.exhausted = false; Snd.play('charge'); }
     if (p.stolen) { // a gelatinous cube is holding one of your weapons
       p.stolen.t -= dt;
       if (p.stolen.t <= 0 || p.stolen.by.dead) { this.text(p.x, p.y - 24, 'Weapon recovered!', '#6fe3c8'); if (p.stolen.by) p.stolen.by.holding = null; p.stolen = null; }
       else if (p.wi === p.stolen.idx) p.wi = 1 - p.stolen.idx;
     }
     for (const ww of p.weapons) ww.cdT = (ww.cdT || 0) - dt; // each weapon keeps its own cooldown
+    if (p.cls === 'fighter' && !p.guard && p.weapons[p.wi].cat === 'melee') { p.guardT += dt; if (p.guardT >= 10) { p.guard = true; p.guardT = 0; this.text(p.x, p.y - 24, 'Guard up', '#cfe3ff'); Snd.play('charge'); } }
     const w = p.weapons[p.wi], melee = w.cat === 'melee';
     // swings keep cutting enemy shots for as long as the blade is moving
     for (const s of p.swings) { s.t += dt; if (s.t < s.dur + 0.1) this.cutShots(p, s); if (s.t <= s.dur + 0.03) this.swingHits(p, s); }
@@ -1115,7 +1120,7 @@ const World = {
         else { p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.trapT = 0; Snd.play('roll'); }
         for (const h of p.hooks.roll) h();
       }
-      const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1);
+      const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.slimed ? 0.6 : 1);
       const k = 1 - Math.exp(-18 * dt);
       p.vx = lerp(p.vx, inp.mx * sp, k); p.vy = lerp(p.vy, inp.my * sp, k);
       this.move(p, p.vx * dt, p.vy * dt);
@@ -1126,6 +1131,7 @@ const World = {
     if (inp.relic) this.useRelic(p);
     if (inp.swap && p.weapons.length > 1 && !p.stolen) { p.wi = 1 - p.wi; p.charge = 0; p.swapT = 0.12; Snd.play('ui'); }
     // E / USE: tap to take; hold half a second on a weapon or relic to salvage it for embers
+    if (inp.bag) this.toBag(p);
     const nk = this.near, salv = nk && (nk.kind === 'weapon' || nk.kind === 'relic');
     if (salv) {
       if (inp.useHeld) { if (p.salvK !== nk) { p.salvK = nk; p.salvT = 0; } if (p.salvT >= 0) { p.salvT += dt; if (p.salvT >= 0.5) { this.salvage(p, nk); p.salvT = -1; } } }
@@ -1252,7 +1258,7 @@ const World = {
     const pr = Object.assign({
       x: p.x + Math.cos(a) * 12, y: p.y + Math.sin(a) * 12, owner: 'p', life: 1.1, pierce: hasQ(w, 'pierce') ? 1 : 0,
       bounce: p.st.bounce, elem: w.elem, homing: p.st.homing + (hasQ(w, 'seeking') ? 2.5 : 0) + (w.elem === 'arcane' ? 1.2 : 0),
-      hit: new Set(), depth: 0, p, leech: hasQ(w, 'leech'), color: ELEM[w.elem].c, stun: hasQ(w, 'stun') && R.chance(0.25) ? 0.7 : 0,
+      hit: new Set(), depth: 0, p, wcat: w.cat, leech: hasQ(w, 'leech'), color: ELEM[w.elem].c, stun: hasQ(w, 'stun') && R.chance(0.25) ? 0.7 : 0,
     }, o);
     pr.vx = Math.cos(a) * o.speed; pr.vy = Math.sin(a) * o.speed;
     if (pr.kind !== 'spark' && pr.kind !== 'bomb') pr.pierce += p.st.pierceAdd;
@@ -1372,6 +1378,11 @@ const World = {
       if (Math.abs(angDiff(e.face, from)) < 0.9) dmg *= 0.7; // owlbears tank frontal hits a bit
     }
     if (src.melee && e.freeze > 0 && this.hasSyn('shatter')) dmg *= 3;
+    if (p.cls === 'ranger') {
+      if (src.proj && src.proj.wcat === 'ranged') dmg *= 1 + 0.35 * clamp((Math.hypot(e.x - p.x, e.y - p.y) - 90) / 240, 0, 1); // farther shots hit harder
+      if (!src.burn && (!this.mark || this.mark.dead) && e.type !== 'banner' && e.type !== 'crystal') { this.mark = e; this.text(e.x, e.y - e.r - 14, 'Marked', '#ff6b6b'); }
+      if (this.mark === e) dmg *= 1.25;
+    }
     e.hp -= dmg; e.flash = 0.09;
     if (src.crit) this.text(e.x, e.y - e.r - 6, Math.round(dmg) + '!', '#ffd27a');
     if (src.stun) e.stun = Math.max(e.stun || 0, src.stun * (e.boss ? 0.12 : 1));
@@ -1382,7 +1393,7 @@ const World = {
     const charging = e.boss || e.mini || e.D.anchored || (e.D.ai === 'charger' && e.state === 2) || (e.st > 0 && ['rush', 'walk', 'flank'].includes(e.D.ai)) || (e.D.ai === 'swoop' && e.state === 1);
     if (!charging) {
       const K = src.melee ? ({ sword: [130, 0.15], spear: [190, 0.22], axe: [260, 0.3], hammer: [360, 0.42] }[src.wtype] || [160, 0.15]) : src.blunt ? [260, 0.2] : [70, 0];
-      const heavy = e.D.hp > 70 ? 0.5 : 1;
+      const heavy = (e.D.hp > 70 ? 0.5 : 1) * (src.melee && p.cls === 'fighter' ? 1.3 : 1);
       e.kx += kx * K[0] * heavy; e.ky += ky * K[0] * heavy;
       if (K[1]) e.stagger = Math.max(e.stagger || 0, K[1] * heavy);
     }
@@ -1394,9 +1405,10 @@ const World = {
       const elems = new Set([src.elem]);
       if (depth === 0 || src.shard) for (const el of p.st.addElem) elems.add(el);
       if (src.extraElem) elems.add(src.extraElem);
-      if (elems.has('fire')) { e.burn = 2.6 * pow; e.burnDmg = Math.max(e.burnDmg || 0, 3 * p.st.dmg * pow); }
-      if (elems.has('frost')) { e.chill = 1.8 * pow; if (R.chance((e.boss ? 0.02 : 0.12) * pow)) e.freeze = 1.1; }
-      if (elems.has('storm') && depth < 2 && R.chance(0.3 * pow)) this.chain(e, dmg * 0.5, depth + 1, p);
+      const mg = p.cls === 'mage';
+      if (elems.has('fire')) { e.burn = 2.6 * pow * (mg ? 1.5 : 1); e.burnDmg = Math.max(e.burnDmg || 0, 3 * p.st.dmg * pow); }
+      if (elems.has('frost')) { e.chill = 1.8 * pow; if (R.chance((e.boss ? 0.02 : 0.12) * pow * (mg ? 2 : 1))) e.freeze = 1.1; }
+      if (elems.has('storm') && depth < 2 && R.chance(0.3 * pow)) this.chain(e, dmg * 0.5, depth + 1, p, e.x, e.y, mg ? 3 : 2);
       if (this.hasSyn('steam') && e.burn > 0 && e.chill > 0 && !src.steam && depth < 3) {
         e.burn = 0; e.chill = 0; this.explode(e.x, e.y, 60, dmg * 0.9 + 8 * p.st.dmg, depth + 1, '#e8f6ff', { steam: true });
       }
@@ -1413,6 +1425,10 @@ const World = {
       return;
     }
     e.dead = true;
+    if (e.D.split) for (const s of [-1, 1]) { // a cube splits into two smaller ones
+      const t = this.freeSpot(e.x + s * 14, e.y), m = this.makeEnemy(e.D.split, t.x, t.y);
+      m.spawnT = 0.15; m.kx = s * 220; m.ky = R.range(-60, 60); this.enemies.push(m);
+    }
     this.burst(e.x, e.y, e.boss ? 80 : 18, e.D.c, e.boss ? 320 : 200, 0.6);
     this.burst(e.x, e.y, 8, '#ffffff', 120, 0.3);
     Snd.play('kill'); Render.kick(e.boss ? 14 : 3);
@@ -1470,6 +1486,10 @@ const World = {
   hurt(p, n = 1) {
     if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.blinkInv > 0 || p.dead || Game.state !== 'play') return;
     if (p.relic === 'displace' && p.dispReady) { p.dispReady = false; p.inv = 0.8; this.text(p.x, p.y - 24, 'Missed!', '#7fd8ff'); this.burst(p.x, p.y, 14, '#7fd8ff', 160, 0.4); Snd.play('blink'); return; }
+    if (p.guard) { // Fighter's Guard eats one hit
+      p.guard = false; p.guardT = 0; p.inv = 0.8; this.text(p.x, p.y - 24, 'Blocked!', '#cfe3ff'); this.burst(p.x, p.y, 18, '#cfe3ff', 200, 0.4); Snd.play('deflect'); Render.kick(4);
+      return;
+    }
     p.hp -= n * (p.st.hurtMult || 1); p.inv = 1.15;
     Snd.play('hurt'); Render.kick(9); Game.hitstop(0.09); Render.flash = 0.25;
     this.burst(p.x, p.y, 20, '#ff4060', 220, 0.5);
@@ -1535,7 +1555,12 @@ const World = {
         if (e.cool <= 0 && dist < range && this.los(e.x, e.y, p.x, p.y)) { e.st = e.D.ai === 'rush' ? 0.28 : 0.22; const s = sp * (e.D.ai === 'rush' ? 2.6 : 2.4); e.dvx = Math.cos(toP) * s; e.dvy = Math.sin(toP) * s; e.cool = R.range(1.3, 2.2); }
         break;
       }
-      case 'ooze': go(this.flowDir(e, p), sp); e.face = toP; break;
+      case 'ooze': {
+        go(this.flowDir(e, p), sp); e.face = toP;
+        e.slimeT = (e.slimeT || 0) - dt; // leaves a slick that outlives it
+        if (e.D.slime && e.slimeT <= 0) { e.slimeT = 0.16; this.slime.push({ x: e.x + R.range(-3, 3), y: e.y + R.range(-3, 3), r: e.r * 0.95 * (0.85 + R() * 0.3), life: 5, max: 5 }); if (this.slime.length > 220) this.slime.shift(); }
+        break;
+      }
       case 'kite': {
         const see = this.los(e.x, e.y, p.x, p.y);
         if (e.st > 0) {
@@ -1641,8 +1666,8 @@ const World = {
     if (mx || my) this.move(e, mx * dt, my * dt);
     if (!p.isDecoy && !e.air && dist < e.r + p.r - 2 && p.inv <= 0 && p.roll <= 0.03 && p.blinkInv <= 0 && p.lunge <= 0) {
       if (e.D.engulf) {
-        p.slowT = 1.6;
-        if (!p.stolen && p.weapons.length > 1 && !e.holding) { p.stolen = { idx: p.wi, t: 4, by: e }; e.holding = p.weapons[p.wi]; p.wi = 1 - p.wi; p.charge = 0; this.text(p.x, p.y - 24, 'Weapon engulfed!', '#6fe3c8'); Snd.play('fizzle'); }
+        p.slowT = 2.2;
+        if (!p.stolen && p.weapons.length > 1 && !e.holding) { p.stolen = { idx: p.wi, t: 5, by: e }; e.holding = p.weapons[p.wi]; p.wi = 1 - p.wi; p.charge = 0; this.text(p.x, p.y - 24, 'Weapon engulfed!', '#6fe3c8'); Snd.play('fizzle'); }
       }
       this.hurt(p, e.D.touch);
     }
@@ -1960,6 +1985,9 @@ const World = {
   // ---------- hazards (kobold traps) and spell zones ----------
   updHazards(dt) {
     const p = this.players[0];
+    for (const s of this.slime) s.life -= dt;
+    if (this.slime.length && this.slime[0].life <= 0) this.slime = this.slime.filter(s => s.life > 0);
+    p.slimed = !p.dead && this.slime.some(s => s.life > 0.6 && d2(s.x, s.y, p.x, p.y) < (s.r * 0.8) ** 2);
     for (const h of this.hazards) {
       h.arm -= dt; h.life -= dt;
       if (h.fire) { if (R.chance(dt * 6)) this.part(h.x + R.range(-10, 10), h.y, 0, -50, 0.5, 3, '#ff7a2a', true); if (!p.dead && d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 4) ** 2 && p.roll <= 0.03 && p.inv <= 0) this.hurt(p, 1); continue; }
@@ -2020,7 +2048,7 @@ const World = {
       k.gone = true; const cp = Game.char.corpse, L = cp.loot; let i = 0;
       const at = () => { const a = i++ * 1.3; return this.freeSpot(k.x + Math.cos(a) * 34, k.y + Math.sin(a) * 34); };
       for (const w of L.weapons) this.pickups.push({ kind: 'weapon', w, ...at(), t: 0 });
-      if (L.relic) this.pickups.push({ kind: 'relic', id: L.relic, ...at(), t: 0 });
+      for (const id of L.relics || (L.relic ? [L.relic] : [])) this.pickups.push({ kind: 'relic', id, ...at(), t: 0 });
       if (L.potion) this.pickups.push({ kind: 'potion', id: L.potion, ...at(), t: 0 });
       Game.char.corpse = null; Meta.save();
       Game.banner('Remains recovered', 'Beat the boss to keep it all', 2); Snd.play('synergy'); this.burst(k.x, k.y, 30, '#9fd8ff', 200, 0.6);
@@ -2068,6 +2096,25 @@ const World = {
       p.charge = 0; Snd.play('item'); this.text(p.x, p.y - 24, k.w.name, RARITY[k.w.rarity].c);
     }
     this.pickups = this.pickups.filter(o => !o.gone);
+  },
+  // Campaign: send a floor weapon or relic into the Void Bag instead of carrying or scrapping it
+  canBag() { const k = this.near; return Game.mode === 'campaign' && !!Game.char && !!k && (k.kind === 'weapon' || k.kind === 'relic'); },
+  toBag(p) {
+    if (!this.canBag()) return;
+    const k = this.near, h = Game.char;
+    if (!this.canSalvage(k)) { // already yours: it just goes home
+      k.gone = true; this.text(k.x, k.y - 22, 'Back to your stash', '#b98cff'); this.burst(k.x, k.y, 18, '#9a6bff', 140, 0.5); Snd.play('portal');
+      this.pickups = this.pickups.filter(o => !o.gone); this.near = null; return;
+    }
+    const cap = Campaign.cap(h), wpn = k.kind === 'weapon';
+    const used = wpn ? h.stash.weapons.length + Game.bag.weapons.length : h.stash.relics.length + Game.bag.relics.length;
+    if (used >= (wpn ? cap.w : cap.r)) { this.text(k.x, k.y - 22, 'Stash is full', '#ff8a9a'); Snd.play('fizzle'); return; }
+    k.gone = true;
+    if (k.group) for (const o of this.pickups) if (o.group === k.group && o !== k) { o.gone = true; this.burst(o.x, o.y, 10, '#555', 80, 0.4); }
+    if (wpn) Game.bag.weapons.push(k.w); else Game.bag.relics.push(k.id);
+    this.burst(k.x, k.y, 26, '#9a6bff', 170, 0.6); Snd.play('portal');
+    this.text(k.x, k.y - 22, 'Into the Void Bag', '#b98cff');
+    this.pickups = this.pickups.filter(o => !o.gone); this.near = null;
   },
   salvageValue(k) { return k.kind === 'relic' ? Math.round(relicById(k.id).cost * 0.1) : [3, 8, 20, 50, 125][k.w.rarity]; },
   canSalvage(k) { // in Campaign, gear that came from your stash can't be turned into free embers
@@ -2234,6 +2281,10 @@ const Render = {
     for (const s of World.parts) if (!s.glow && !s.ring) { c.globalAlpha = clamp(s.life / s.max, 0, 1) * 0.5; c.fillStyle = s.color; c.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size); }
     c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
     for (const e of World.enemies) this.enemy(e);
+    const mk = World.mark; if (mk && !mk.dead && mk.spawnT <= 0) { // Hunter's Mark
+      const rr = mk.r * 1.15 + 6 + Math.sin(World.time * 6) * 1.5; c.save(); c.translate(mk.x, mk.y); c.rotate(World.time * 1.2); c.strokeStyle = 'rgba(255,90,90,0.85)'; c.lineWidth = 2;
+      for (let i = 0; i < 4; i++) { c.rotate(TAU / 4); c.beginPath(); c.arc(0, 0, rr, -0.45, 0.45); c.stroke(); c.beginPath(); c.moveTo(rr - 4, 0); c.lineTo(rr + 5, 0); c.stroke(); }
+      c.restore(); }
     this.allies();
     for (const p of World.players) if (!p.dead) this.player(p);
     this.fx();
@@ -2373,6 +2424,10 @@ const Render = {
     const pl = World.players[0];
     if (pl && pl.salvT > 0 && pl.salvK && !pl.salvK.gone) { // salvage progress ring
       const k = pl.salvK; c.strokeStyle = '#ffb057'; c.lineWidth = 3; c.beginPath(); c.arc(k.x, k.y, 22, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(pl.salvT / 0.5, 0, 1)); c.stroke();
+    }
+    for (const s of World.slime) { // cube slick, fading out
+      const a = clamp(s.life / s.max, 0, 1);
+      c.fillStyle = `rgba(95,220,180,${0.2 * a})`; c.beginPath(); c.ellipse(s.x, s.y, s.r, s.r * 0.78, 0, 0, TAU); c.fill();
     }
     for (const h of World.hazards) {
       if (h.fire) { c.globalCompositeOperation = 'lighter'; this.drawGlow('#ff7a2a', h.x, h.y, h.r * 1.6, clamp(h.life, 0, 1) * 0.6); this.drawGlow('#ffd27a', h.x, h.y, h.r * 0.7, clamp(h.life, 0, 1) * 0.5); c.globalCompositeOperation = 'source-over'; continue; }
@@ -2559,8 +2614,8 @@ const Render = {
         c.fillStyle = '#ffe066'; c.beginPath(); c.arc(r * 0.5, -r * 0.3, 1.8, 0, TAU); c.arc(r * 0.5, r * 0.3, 1.8, 0, TAU); c.fill();
         break;
       }
-      case 'cube': {
-        const wob = Math.sin(t * 3 + e.x) * 1.5;
+      case 'cube': case 'cubeling': {
+        const r = e.r * 1.15, wob = Math.sin(t * 3 + e.x) * r * 0.08;
         c.globalAlpha = 0.45; c.fillStyle = col; roundRect(c, -r - wob, -r + wob, (r + wob) * 2, (r - wob) * 2, 4); c.fill();
         c.globalAlpha = 1; c.strokeStyle = hexA('#bfffef', 0.8); c.lineWidth = 2; roundRect(c, -r - wob, -r + wob, (r + wob) * 2, (r - wob) * 2, 4); c.stroke();
         c.fillStyle = 'rgba(255,255,255,0.25)'; c.fillRect(-r * 0.7, -r * 0.7, r * 0.5, r * 0.25);
@@ -3027,18 +3082,30 @@ const HUD = {
       if (hp >= 2) { heartPath(c, x, y, 10); c.fillStyle = '#ff5470'; c.fill(); }
       else if (hp === 1) { c.save(); c.beginPath(); c.rect(x - 15, y - 15, 15, 30); c.clip(); heartPath(c, x, y, 10); c.fillStyle = '#ff5470'; c.fill(); c.restore(); }
     }
-    if (p.revives) { c.fillStyle = '#ffb02e'; c.font = font(13); c.textAlign = 'left'; c.fillText('+' + p.revives + ' revive', pad + p.maxHp / 2 * 25 + 6, pad + 17); }
+    let hx = pad + p.maxHp / 2 * 25 + 4;
+    if (p.cls === 'fighter') { // Guard pip
+      const gx = hx + 9, gy = pad + 12, on = p.weapons[p.wi].cat === 'melee';
+      const shield = () => { c.beginPath(); c.moveTo(gx, gy - 10); c.lineTo(gx + 9, gy - 6); c.lineTo(gx + 7, gy + 5); c.lineTo(gx, gy + 11); c.lineTo(gx - 7, gy + 5); c.lineTo(gx - 9, gy - 6); c.closePath(); };
+      shield(); c.fillStyle = '#1c2236'; c.fill(); c.strokeStyle = '#cfe3ff'; c.lineWidth = 1.5; c.stroke();
+      if (p.guard) { shield(); c.fillStyle = '#9fc4ff'; c.fill(); }
+      else { c.save(); shield(); c.clip(); c.fillStyle = on ? 'rgba(159,196,255,0.55)' : 'rgba(120,130,160,0.35)'; const f = clamp(p.guardT / 10, 0, 1); c.fillRect(gx - 10, gy + 11 - 22 * f, 20, 22 * f); c.restore(); }
+      hx += 24;
+    }
+    if (p.revives) { c.fillStyle = '#ffb02e'; c.font = font(13); c.textAlign = 'left'; c.fillText('+' + p.revives + ' revive', hx + 2, pad + 17); }
     // embers
     c.fillStyle = '#ffb057'; c.beginPath(); c.moveTo(pad + 10, pad + 30); c.lineTo(pad + 16, pad + 38); c.lineTo(pad + 10, pad + 46); c.lineTo(pad + 4, pad + 38); c.fill();
     c.font = font(16, 800); c.textAlign = 'left'; c.fillText(Game.runEmbers, pad + 23, pad + 44);
     if (p.keys > 0) { const kx = pad + 70; c.strokeStyle = '#ffd27a'; c.lineWidth = 2.5; c.beginPath(); c.arc(kx, pad + 38, 4, 0, TAU); c.moveTo(kx + 4, pad + 38); c.lineTo(kx + 14, pad + 38); c.moveTo(kx + 11, pad + 38); c.lineTo(kx + 11, pad + 43); c.stroke(); c.fillStyle = '#ffd27a'; c.fillText(p.keys, kx + 19, pad + 44); }
     // items
     p.items.forEach((id, i) => { const it = ITEMS.find(x => x.id === id); itemIcon(c, it, pad + 11 + (i % 10) * 24, pad + 66 + Math.floor(i / 10) * 24, 10); });
-    // weapons
-    const tch = Input.last === 'touch', bx = tch ? (W - 300) / 2 : pad, by = tch ? pad - 4 : H - pad - 64; // on touch, keep thumbs' corners clear
-    p.weapons.forEach((w, i) => {
-      const active = i === p.wi; c.font = font(active ? 15 : 13, 800);
-      const y = active ? by : tch ? by + 66 : by - 46, h = active ? 62 : 40, ww = clamp(c.measureText(w.name).width + 70, active ? 250 : 210, Math.min(420, W - 40));
+    // weapons + mana: top center on every device, so mana is always where your eyes are
+    const tch = Input.last === 'touch', by = pad - 4;
+    let swapY = 0;
+    const order = p.weapons.map((w, i) => i).sort((a, b) => (b === p.wi) - (a === p.wi)); // active first
+    let yCur = by;
+    order.forEach((i, n) => {
+      const w = p.weapons[i], active = i === p.wi; c.font = font(active ? 15 : 13, 800);
+      const h = active ? 62 : 40, ww = clamp(c.measureText(w.name).width + 70, active ? 250 : 210, Math.min(420, W - 40)), bx = (W - ww) / 2, y = yCur;
       c.fillStyle = active ? 'rgba(20,14,38,0.85)' : 'rgba(20,14,38,0.6)'; roundRect(c, bx, y, ww, h, 10); c.fill();
       c.strokeStyle = active ? RARITY[w.rarity].c : 'rgba(120,100,180,0.5)'; c.lineWidth = active ? 2 : 1; c.stroke();
       weaponIcon(c, w, bx + 26, y + h / 2, active ? 30 : 22);
@@ -3050,12 +3117,13 @@ const HUD = {
         c.fillText(weaponLine(w), bx + 50, y + 45);
         const bar = (f, col) => { c.fillStyle = 'rgba(255,255,255,0.15)'; c.fillRect(bx + 50, y + 51, ww - 64, 5); c.fillStyle = col; c.fillRect(bx + 50, y + 51, (ww - 64) * clamp(f, 0, 1), 5); };
         if (w.type === 'bow' && p.charge > 0) bar(p.charge, p.charge >= 1 ? '#fff' : ELEM[w.elem].c);
-        if (w.type === 'wand' || w.type === 'staff') bar(p.mana / p.maxMana, p.exhausted || p.manaFlash > 0 ? '#ff4d6d' : '#4fa3ff');
         if (w.type === 'spellbook') { const f = 1 - clamp((w.cdT || 0) / (w.cd / p.st.rate), 0, 1); bar(f, f >= 1 ? '#ffffff' : ELEM[w.elem].c); }
-      }
+        yCur += h + 6; yCur = this.manaBar(c, W, yCur, p, w, font) + 6;
+      } else { yCur += h + 6; swapY = yCur + 10; }
     });
+    if (p.weapons.length < 2) swapY = 0;
     this.slots(c, W, H, p, pad, font);
-    if (p.weapons.length > 1 && Input.last !== 'touch') { c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', bx + 218, by - 20); }
+    if (swapY && !tch) { c.textAlign = 'center'; c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', W / 2, swapY); }
     this.minimap(c, W, pad, font);
     // boss bar
     const b = World.boss;
@@ -3070,7 +3138,8 @@ const HUD = {
     const k = World.near;
     const key = Input.last === 'touch' ? 'Tap USE' : Input.last === 'pad' ? 'X' : 'E';
     const hold = Input.last === 'touch' ? 'hold USE' : Input.last === 'pad' ? 'hold X' : 'hold E';
-    this.salvHint = k && (k.kind === 'weapon' || k.kind === 'relic') ? (World.canSalvage(k) ? `  ·  ${hold} to salvage for ${World.salvageValue(k)} embers` : '  ·  from your stash') : '';
+    const bagKey = Input.last === 'touch' ? 'BAG' : Input.last === 'pad' ? 'D-pad ↓' : 'V';
+    this.salvHint = k && (k.kind === 'weapon' || k.kind === 'relic') ? (World.canSalvage(k) ? `  ·  ${hold} to salvage for ${World.salvageValue(k)} embers` : '  ·  from your stash') + (World.canBag() ? `  ·  ${bagKey} to ${World.canSalvage(k) ? 'bag it' : 'send back'}` : '') : '';
     if (k && k.kind === 'weapon') this.compare(c, W, H, p, k.w, key, font);
     else if (k) {
       let title, line1, line2 = '', col;
@@ -3152,8 +3221,25 @@ const HUD = {
     c.textAlign = 'center'; c.fillStyle = '#ffb057'; c.font = font(12, 800);
     c.fillText(`${key} to ${cur ? 'swap' : 'take'}${this.salvHint || ''}`, W / 2, y + h + 18);
   },
+  // Mana is shared by every wand and staff, so it gets its own bar. Length follows the pool, one tick per 10.
+  manaBar(c, W, y, p, w, font) {
+    const per = 2.4, bw = Math.min(W - 40, p.maxMana * per), x = (W - bw) / 2, hgt = 8;
+    const uses = w && (w.type === 'wand' || w.type === 'staff');
+    c.fillStyle = 'rgba(10,6,20,0.75)'; roundRect(c, x - 3, y - 3, bw + 6, hgt + 6, 5); c.fill();
+    c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(x, y, bw, hgt);
+    const red = p.exhausted || p.manaFlash > 0;
+    c.globalAlpha = uses || red ? 1 : 0.6;
+    c.fillStyle = red ? '#ff4d6d' : '#4fa3ff'; c.fillRect(x, y, bw * clamp(p.mana / p.maxMana, 0, 1), hgt);
+    c.globalAlpha = 1;
+    c.fillStyle = 'rgba(10,6,20,0.85)';
+    for (let m = 10; m < p.maxMana; m += 10) c.fillRect(x + bw * m / p.maxMana - 0.75, y, 1.5, hgt);
+    if (p.exhausted) { const hx = x + bw * 0.5; c.fillStyle = '#ffe066'; c.fillRect(hx - 1, y - 3, 2, hgt + 6); } // casting comes back here
+    c.textAlign = 'right'; c.fillStyle = red ? '#ff8a9a' : 'rgba(160,200,255,0.75)'; c.font = font(10, 800);
+    c.fillText(Math.floor(p.mana), x - 8, y + hgt);
+    return y + hgt;
+  },
   slots(c, W, H, p, pad, font) { // potion (R) and relic (F)
-    const tch = Input.last === 'touch', sz = 44, x0 = pad, y0 = tch ? pad + 140 : H - pad - 64 - 46 - sz - 22;
+    const tch = Input.last === 'touch', sz = 44, x0 = pad, y0 = tch ? pad + 140 : H - pad - sz - 14;
     const box = (i, label, key, draw, sub) => {
       if (tch) return; // touch shows these on its own buttons
       const x = x0 + i * (sz + 8);
@@ -3176,7 +3262,7 @@ const HUD = {
   enemyBox(c, W, H, pad, font) { // name of the last thing you hit
     const lh = World.lastHit; if (!lh || lh.t <= 0) return;
     const e = lh.e, a = clamp(lh.t / 0.5, 0, 1), bw = 170, tch = Input.last === 'touch';
-    const x = tch ? pad : (W - bw) / 2, y = tch ? pad + 92 : pad;
+    const x = pad, y = pad + 92;
     c.globalAlpha = a;
     c.fillStyle = 'rgba(14,9,28,0.75)'; roundRect(c, x, y, bw, 40, 8); c.fill();
     c.textAlign = 'left'; c.fillStyle = e.D.c; c.font = font(12, 800); c.fillText(e.D.n || '', x + 10, y + 16);
@@ -3220,6 +3306,7 @@ const HUD = {
     const p = World.players[0], w = p.weapons[p.wi];
     for (const b of Input.touchButtons()) {
       if (b.id === 'use' && !World.near) continue;
+      if (b.id === 'bag' && !World.canBag()) continue;
       if (b.id === 'swap' && p.weapons.length < 2) continue;
       if (b.id === 'potion' && !p.potion) continue;
       if (b.id === 'relic' && !(p.relic && relicById(p.relic).active)) continue;
@@ -3230,15 +3317,23 @@ const HUD = {
         continue;
       }
       const held = b.id === 'attack' && Input.atk !== null;
-      c.fillStyle = b.id === 'use' ? 'rgba(255,176,87,0.35)' : b.id === 'attack' ? (held ? 'rgba(255,122,42,0.45)' : 'rgba(255,122,42,0.22)') : 'rgba(40,28,80,0.55)';
+      c.fillStyle = b.id === 'bag' ? 'rgba(150,90,255,0.4)' : b.id === 'use' ? 'rgba(255,176,87,0.35)' : b.id === 'attack' ? (held ? 'rgba(255,122,42,0.45)' : 'rgba(255,122,42,0.22)') : 'rgba(40,28,80,0.55)';
       c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill();
       c.strokeStyle = b.id === 'attack' ? 'rgba(255,200,140,0.7)' : 'rgba(233,228,255,0.4)'; c.lineWidth = b.id === 'attack' ? 2.5 : 1.5; c.stroke();
       if (b.id === 'attack') { weaponIcon(c, w, b.x, b.y, b.r * 1.0, -0.8); continue; }
       c.fillStyle = '#f4eeff'; c.textAlign = 'center'; c.font = `800 ${Math.round(b.r * 0.42)}px ui-rounded, system-ui, sans-serif`;
-      c.fillText({ roll: p.cls === 'mage' ? 'BLINK' : 'ROLL', swap: 'SWAP', use: 'USE', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
+      c.fillText({ roll: p.cls === 'mage' ? 'BLINK' : 'ROLL', swap: 'SWAP', use: 'USE', bag: 'BAG', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
     }
   },
 };
+// Void Bag contents for the pause screen: look, don't touch
+function bagHtml() {
+  if (Game.mode !== 'campaign' || !Game.bag) return '';
+  const B = Game.bag, n = B.weapons.length + B.relics.length;
+  const rows = B.weapons.map(w => `<div class="card"><div class="grow"><b style="color:${RARITY[w.rarity].c}">${esc(w.name)}</b><small>${RARITY[w.rarity].n} ${w.type} · ${weaponLine(w)}</small></div></div>`)
+    .concat(B.relics.map(id => { const D = relicById(id); return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b><small>${D.d}</small></div></div>`; })).join('');
+  return `<div class="sub" style="margin:12px 0 4px">Void Bag · ${n ? n + ' item' + (n > 1 ? 's' : '') + '. Beat the boss to bank them, or recover them from your remains.' : 'Empty. Press ' + (Input.last === 'touch' ? 'BAG' : Input.last === 'pad' ? 'D-pad down' : 'V') + ' near a weapon or relic to send it home.'}</div><div class="list">${rows}</div>`;
+}
 function wrapText(c, s, w, max) {
   const words = s.split(' '), out = []; let line = '';
   for (const wd of words) { const t = line ? line + ' ' + wd : wd; if (c.measureText(t).width > w && line) { out.push(line); line = wd; } else line = t; }
@@ -3276,6 +3371,7 @@ const Game = {
     this.seedNum = strHash(this.seed);
     const sec = this.mode === 'quick' ? SECRETS[this.seedNum] : null;
     this.secret = sec || null; this.mods = sec ? { ...sec.mods } : {};
+    this.bag = { weapons: [], relics: [] }; // campaign Void Bag: banks on a win, rides with your corpse
     this.runEmbers = 0; this.runXp = 0; this.runTime = 0; this.deadT = 0; this.hs = 0; this.keysSpawned = 0; this.chestsSpawned = 0;
     Meta.data.stats.runs++; Meta.save();
     Music.setSeed(this.seedNum); Music.on = true;
@@ -3438,7 +3534,7 @@ const Menu = {
       M.seeds.forEach((s, i) => { this.on('play-' + i, () => this.show('class', s.seed)); this.on('del-' + i, () => { M.seeds.splice(i, 1); Meta.save(); this.show('saved'); }); });
       this.on('b-back', () => this.show('title'));
     } else if (name === 'sanctum') {
-      const rows = UNLOCKS.map(u => {
+      const rows = UNLOCKS.filter(u => !u.camp).map(u => {
         const own = Meta.has(u.id), locked = u.req && !Meta.has(u.req);
         return `<div class="card"><div class="grow"><b>${u.n}</b><small>${locked ? 'Requires ' + UNLOCKS.find(x => x.id === u.req).n : u.d}</small></div>${own ? '<span class="ember">✓</span>' : `<button class="btn" id="u-${u.id}" ${M.embers < u.cost || locked ? 'disabled' : ''}>${u.cost} ◆</button>`}</div>`;
       }).join('');
@@ -3448,7 +3544,7 @@ const Menu = {
         <div class="hint">Secret seeds found: ${found.length} / ${Object.keys(SECRETS).length}${found.length ? ' · <span class="secret">' + found.join(', ') + '</span>' : ''}<br>Runs ${M.stats.runs} · Escapes ${M.stats.wins} · Deepest level ${M.stats.bestDepth ? levelLabel(Math.ceil(M.stats.bestDepth / 3), (M.stats.bestDepth - 1) % 3 + 1) : '-'} · Foes slain ${M.stats.kills}</div>
         <div class="row"><button class="btn small" id="b-back">Back</button><button class="btn small" id="b-reset">Reset Progress</button></div>`);
       this.on('b-reset', () => { const b = document.getElementById('b-reset'); if (b.dataset.armed) { M.embers = 0; M.unlocks = {}; Meta.save(); this.show('sanctum'); } else { b.dataset.armed = 1; b.textContent = 'Tap again to wipe embers + unlocks'; } });
-      for (const u of UNLOCKS) this.on('u-' + u.id, () => { if (M.embers >= u.cost) { M.embers -= u.cost; M.unlocks[u.id] = 1; Meta.save(); Snd.play('item'); this.show('sanctum'); } });
+      for (const u of UNLOCKS.filter(u => !u.camp)) this.on('u-' + u.id, () => { if (M.embers >= u.cost) { M.embers -= u.cost; M.unlocks[u.id] = 1; Meta.save(); Snd.play('item'); this.show('sanctum'); } });
       this.on('b-back', () => this.show('title'));
     } else if (name === 'pause') {
       const p = World.players[0];
@@ -3456,7 +3552,7 @@ const Menu = {
       const syn = p.syn.map(id => SYNERGIES.find(s => s.id === id)).map(s => `<div class="card"><div class="grow"><b class="secret">✦ ${s.n}</b><small>${s.d}</small></div></div>`).join('');
       this.html(`<h2>Paused</h2><div class="sub"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
         <div class="stats" style="grid-template-columns:auto auto auto auto;max-width:540px;font-size:14px">${statBlock(p)}</div>
-        <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>
+        <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>${bagHtml()}
         <button class="btn" id="b-res">Resume</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button></div>
         <button class="btn small" id="b-quit">Abandon Run</button>`);
@@ -3559,6 +3655,7 @@ const Campaign = {
     const h = { name: name || C.n, cls, lvl: 1, xp: 0, xpv: 2, embers: 0, unlocks: {}, stash: { weapons, relics: [], potions: [] }, load: { w: weapons.map(w => w.uid), relic: null, potion: null }, cleared: 0, corpse: null, shop: null, stats: { runs: 0, deaths: 0, kills: 0, clears: 0 } };
     this.data().slots[i] = h; Meta.save(); return h;
   },
+  cap(h) { const x = h.unlocks.armory ? 1 : 0; return { w: 20 + 10 * x, r: 8 + 4 * x }; },
   loadoutWeapons(h) {
     const pick = h.load.w.map(u => h.stash.weapons.find(w => w.uid === u)).filter(Boolean);
     for (const w of h.stash.weapons) if (pick.length < 2 && !pick.includes(w)) pick.push(w);
@@ -3592,17 +3689,21 @@ const Campaign = {
     const newW = p.weapons.filter(w => !have.has(w.uid));
     const newRelic = p.relic && !h.stash.relics.includes(p.relic) ? p.relic : null;
     const newPotion = p.potion && p.potion !== Game.loadPotion ? p.potion : null;
+    const bag = Game.bag || { weapons: [], relics: [] };
+    const allW = newW.concat(bag.weapons), allR = (newRelic ? [newRelic] : []).concat(bag.relics);
     if (won) {
-      for (const w of newW) { h.stash.weapons.push(w); res.banked.push(w.name); }
-      if (newRelic) { h.stash.relics.push(newRelic); res.banked.push(relicById(newRelic).n); }
+      for (const w of allW) { h.stash.weapons.push(w); res.banked.push(w.name); }
+      for (const id of allR) { h.stash.relics.push(id); res.banked.push(relicById(id).n); }
       if (newPotion) { h.stash.potions.push(newPotion); res.banked.push(potionById(newPotion).n); }
+      h.load.w = p.weapons.map(w => w.uid); // next run starts with what you finished with
+      h.load.relic = p.relic || null; if (newPotion) h.load.potion = newPotion;
       res.unlocked = W >= h.cleared + 1 && W < WORLD_COUNT ? WORLDS[W + 1].n : null;
       h.cleared = Math.max(h.cleared, W); h.stats.clears++;
     } else {
       h.stats.deaths++;
-      if (newW.length || newRelic || newPotion) {
-        h.corpse = { seed: Game.seed, world: W, stage: World.level, x: p.x, y: p.y, loot: { weapons: newW, relic: newRelic, potion: newPotion } };
-        res.lost = newW.map(w => w.name).concat(newRelic ? [relicById(newRelic).n] : [], newPotion ? [potionById(newPotion).n] : []);
+      if (allW.length || allR.length || newPotion) {
+        h.corpse = { seed: Game.seed, world: W, stage: World.level, x: p.x, y: p.y, loot: { weapons: allW, relics: allR, potion: newPotion } };
+        res.lost = allW.map(w => w.name).concat(allR.map(id => relicById(id).n), newPotion ? [potionById(newPotion).n] : []);
       }
     }
     h.shop = null; Meta.save();
@@ -3677,8 +3778,8 @@ const CampScreens = {
     const rcard = (id, k) => { const D = relicById(id), on = L.relic === id; return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b><small>${D.d}</small></div><button class="btn" id="eq-r-${k}">${on ? 'Equipped' : 'Equip'}</button></div>`; };
     const pcard = (id, k) => { const D = potionById(id), on = L.potion === id && h.stash.potions.indexOf(id) === k; return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b><small>${D.d} · used up when you drink it</small></div><button class="btn" id="eq-p-${k}">${on ? 'Packed' : 'Pack'}</button></div>`; };
     Menu.html(`<h2>Loadout</h2><div class="sub">Take 2 weapons, 1 relic and 1 potion into the dungeon. Your stash gear is never lost.</div>
-      <div class="list"><div class="sub" style="margin:4px 0">Weapons (${h.stash.weapons.length})</div>${h.stash.weapons.map(wcard).join('')}
-      <div class="sub" style="margin:10px 0 4px">Relics</div>${h.stash.relics.map(rcard).join('') || '<small>None yet. Find them in chests or buy them in the Shop.</small>'}
+      <div class="list"><div class="sub" style="margin:4px 0">Weapons (${h.stash.weapons.length}/${Campaign.cap(h).w})</div>${h.stash.weapons.map(wcard).join('')}
+      <div class="sub" style="margin:10px 0 4px">Relics (${h.stash.relics.length}/${Campaign.cap(h).r})</div>${h.stash.relics.map(rcard).join('') || '<small>None yet. Find them in chests or buy them in the Shop.</small>'}
       <div class="sub" style="margin:10px 0 4px">Potions</div>${h.stash.potions.map(pcard).join('') || '<small>None yet.</small>'}</div>
       <button class="btn small" id="b-back">Back</button>`);
     h.stash.weapons.forEach((w, k) => {

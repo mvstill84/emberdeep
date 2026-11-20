@@ -24,6 +24,7 @@ const Campaign = {
     const h = { name: name || C.n, cls, lvl: 1, xp: 0, xpv: 2, embers: 0, unlocks: {}, stash: { weapons, relics: [], potions: [] }, load: { w: weapons.map(w => w.uid), relic: null, potion: null }, cleared: 0, corpse: null, shop: null, stats: { runs: 0, deaths: 0, kills: 0, clears: 0 } };
     this.data().slots[i] = h; Meta.save(); return h;
   },
+  cap(h) { const x = h.unlocks.armory ? 1 : 0; return { w: 20 + 10 * x, r: 8 + 4 * x }; },
   loadoutWeapons(h) {
     const pick = h.load.w.map(u => h.stash.weapons.find(w => w.uid === u)).filter(Boolean);
     for (const w of h.stash.weapons) if (pick.length < 2 && !pick.includes(w)) pick.push(w);
@@ -57,17 +58,21 @@ const Campaign = {
     const newW = p.weapons.filter(w => !have.has(w.uid));
     const newRelic = p.relic && !h.stash.relics.includes(p.relic) ? p.relic : null;
     const newPotion = p.potion && p.potion !== Game.loadPotion ? p.potion : null;
+    const bag = Game.bag || { weapons: [], relics: [] };
+    const allW = newW.concat(bag.weapons), allR = (newRelic ? [newRelic] : []).concat(bag.relics);
     if (won) {
-      for (const w of newW) { h.stash.weapons.push(w); res.banked.push(w.name); }
-      if (newRelic) { h.stash.relics.push(newRelic); res.banked.push(relicById(newRelic).n); }
+      for (const w of allW) { h.stash.weapons.push(w); res.banked.push(w.name); }
+      for (const id of allR) { h.stash.relics.push(id); res.banked.push(relicById(id).n); }
       if (newPotion) { h.stash.potions.push(newPotion); res.banked.push(potionById(newPotion).n); }
+      h.load.w = p.weapons.map(w => w.uid); // next run starts with what you finished with
+      h.load.relic = p.relic || null; if (newPotion) h.load.potion = newPotion;
       res.unlocked = W >= h.cleared + 1 && W < WORLD_COUNT ? WORLDS[W + 1].n : null;
       h.cleared = Math.max(h.cleared, W); h.stats.clears++;
     } else {
       h.stats.deaths++;
-      if (newW.length || newRelic || newPotion) {
-        h.corpse = { seed: Game.seed, world: W, stage: World.level, x: p.x, y: p.y, loot: { weapons: newW, relic: newRelic, potion: newPotion } };
-        res.lost = newW.map(w => w.name).concat(newRelic ? [relicById(newRelic).n] : [], newPotion ? [potionById(newPotion).n] : []);
+      if (allW.length || allR.length || newPotion) {
+        h.corpse = { seed: Game.seed, world: W, stage: World.level, x: p.x, y: p.y, loot: { weapons: allW, relics: allR, potion: newPotion } };
+        res.lost = allW.map(w => w.name).concat(allR.map(id => relicById(id).n), newPotion ? [potionById(newPotion).n] : []);
       }
     }
     h.shop = null; Meta.save();
@@ -142,8 +147,8 @@ const CampScreens = {
     const rcard = (id, k) => { const D = relicById(id), on = L.relic === id; return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b><small>${D.d}</small></div><button class="btn" id="eq-r-${k}">${on ? 'Equipped' : 'Equip'}</button></div>`; };
     const pcard = (id, k) => { const D = potionById(id), on = L.potion === id && h.stash.potions.indexOf(id) === k; return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b><small>${D.d} · used up when you drink it</small></div><button class="btn" id="eq-p-${k}">${on ? 'Packed' : 'Pack'}</button></div>`; };
     Menu.html(`<h2>Loadout</h2><div class="sub">Take 2 weapons, 1 relic and 1 potion into the dungeon. Your stash gear is never lost.</div>
-      <div class="list"><div class="sub" style="margin:4px 0">Weapons (${h.stash.weapons.length})</div>${h.stash.weapons.map(wcard).join('')}
-      <div class="sub" style="margin:10px 0 4px">Relics</div>${h.stash.relics.map(rcard).join('') || '<small>None yet. Find them in chests or buy them in the Shop.</small>'}
+      <div class="list"><div class="sub" style="margin:4px 0">Weapons (${h.stash.weapons.length}/${Campaign.cap(h).w})</div>${h.stash.weapons.map(wcard).join('')}
+      <div class="sub" style="margin:10px 0 4px">Relics (${h.stash.relics.length}/${Campaign.cap(h).r})</div>${h.stash.relics.map(rcard).join('') || '<small>None yet. Find them in chests or buy them in the Shop.</small>'}
       <div class="sub" style="margin:10px 0 4px">Potions</div>${h.stash.potions.map(pcard).join('') || '<small>None yet.</small>'}</div>
       <button class="btn small" id="b-back">Back</button>`);
     h.stash.weapons.forEach((w, k) => {

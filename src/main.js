@@ -18,18 +18,30 @@ const HUD = {
       if (hp >= 2) { heartPath(c, x, y, 10); c.fillStyle = '#ff5470'; c.fill(); }
       else if (hp === 1) { c.save(); c.beginPath(); c.rect(x - 15, y - 15, 15, 30); c.clip(); heartPath(c, x, y, 10); c.fillStyle = '#ff5470'; c.fill(); c.restore(); }
     }
-    if (p.revives) { c.fillStyle = '#ffb02e'; c.font = font(13); c.textAlign = 'left'; c.fillText('+' + p.revives + ' revive', pad + p.maxHp / 2 * 25 + 6, pad + 17); }
+    let hx = pad + p.maxHp / 2 * 25 + 4;
+    if (p.cls === 'fighter') { // Guard pip
+      const gx = hx + 9, gy = pad + 12, on = p.weapons[p.wi].cat === 'melee';
+      const shield = () => { c.beginPath(); c.moveTo(gx, gy - 10); c.lineTo(gx + 9, gy - 6); c.lineTo(gx + 7, gy + 5); c.lineTo(gx, gy + 11); c.lineTo(gx - 7, gy + 5); c.lineTo(gx - 9, gy - 6); c.closePath(); };
+      shield(); c.fillStyle = '#1c2236'; c.fill(); c.strokeStyle = '#cfe3ff'; c.lineWidth = 1.5; c.stroke();
+      if (p.guard) { shield(); c.fillStyle = '#9fc4ff'; c.fill(); }
+      else { c.save(); shield(); c.clip(); c.fillStyle = on ? 'rgba(159,196,255,0.55)' : 'rgba(120,130,160,0.35)'; const f = clamp(p.guardT / 10, 0, 1); c.fillRect(gx - 10, gy + 11 - 22 * f, 20, 22 * f); c.restore(); }
+      hx += 24;
+    }
+    if (p.revives) { c.fillStyle = '#ffb02e'; c.font = font(13); c.textAlign = 'left'; c.fillText('+' + p.revives + ' revive', hx + 2, pad + 17); }
     // embers
     c.fillStyle = '#ffb057'; c.beginPath(); c.moveTo(pad + 10, pad + 30); c.lineTo(pad + 16, pad + 38); c.lineTo(pad + 10, pad + 46); c.lineTo(pad + 4, pad + 38); c.fill();
     c.font = font(16, 800); c.textAlign = 'left'; c.fillText(Game.runEmbers, pad + 23, pad + 44);
     if (p.keys > 0) { const kx = pad + 70; c.strokeStyle = '#ffd27a'; c.lineWidth = 2.5; c.beginPath(); c.arc(kx, pad + 38, 4, 0, TAU); c.moveTo(kx + 4, pad + 38); c.lineTo(kx + 14, pad + 38); c.moveTo(kx + 11, pad + 38); c.lineTo(kx + 11, pad + 43); c.stroke(); c.fillStyle = '#ffd27a'; c.fillText(p.keys, kx + 19, pad + 44); }
     // items
     p.items.forEach((id, i) => { const it = ITEMS.find(x => x.id === id); itemIcon(c, it, pad + 11 + (i % 10) * 24, pad + 66 + Math.floor(i / 10) * 24, 10); });
-    // weapons
-    const tch = Input.last === 'touch', bx = tch ? (W - 300) / 2 : pad, by = tch ? pad - 4 : H - pad - 64; // on touch, keep thumbs' corners clear
-    p.weapons.forEach((w, i) => {
-      const active = i === p.wi; c.font = font(active ? 15 : 13, 800);
-      const y = active ? by : tch ? by + 66 : by - 46, h = active ? 62 : 40, ww = clamp(c.measureText(w.name).width + 70, active ? 250 : 210, Math.min(420, W - 40));
+    // weapons + mana: top center on every device, so mana is always where your eyes are
+    const tch = Input.last === 'touch', by = pad - 4;
+    let swapY = 0;
+    const order = p.weapons.map((w, i) => i).sort((a, b) => (b === p.wi) - (a === p.wi)); // active first
+    let yCur = by;
+    order.forEach((i, n) => {
+      const w = p.weapons[i], active = i === p.wi; c.font = font(active ? 15 : 13, 800);
+      const h = active ? 62 : 40, ww = clamp(c.measureText(w.name).width + 70, active ? 250 : 210, Math.min(420, W - 40)), bx = (W - ww) / 2, y = yCur;
       c.fillStyle = active ? 'rgba(20,14,38,0.85)' : 'rgba(20,14,38,0.6)'; roundRect(c, bx, y, ww, h, 10); c.fill();
       c.strokeStyle = active ? RARITY[w.rarity].c : 'rgba(120,100,180,0.5)'; c.lineWidth = active ? 2 : 1; c.stroke();
       weaponIcon(c, w, bx + 26, y + h / 2, active ? 30 : 22);
@@ -41,12 +53,13 @@ const HUD = {
         c.fillText(weaponLine(w), bx + 50, y + 45);
         const bar = (f, col) => { c.fillStyle = 'rgba(255,255,255,0.15)'; c.fillRect(bx + 50, y + 51, ww - 64, 5); c.fillStyle = col; c.fillRect(bx + 50, y + 51, (ww - 64) * clamp(f, 0, 1), 5); };
         if (w.type === 'bow' && p.charge > 0) bar(p.charge, p.charge >= 1 ? '#fff' : ELEM[w.elem].c);
-        if (w.type === 'wand' || w.type === 'staff') bar(p.mana / p.maxMana, p.exhausted || p.manaFlash > 0 ? '#ff4d6d' : '#4fa3ff');
         if (w.type === 'spellbook') { const f = 1 - clamp((w.cdT || 0) / (w.cd / p.st.rate), 0, 1); bar(f, f >= 1 ? '#ffffff' : ELEM[w.elem].c); }
-      }
+        yCur += h + 6; yCur = this.manaBar(c, W, yCur, p, w, font) + 6;
+      } else { yCur += h + 6; swapY = yCur + 10; }
     });
+    if (p.weapons.length < 2) swapY = 0;
     this.slots(c, W, H, p, pad, font);
-    if (p.weapons.length > 1 && Input.last !== 'touch') { c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', bx + 218, by - 20); }
+    if (swapY && !tch) { c.textAlign = 'center'; c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', W / 2, swapY); }
     this.minimap(c, W, pad, font);
     // boss bar
     const b = World.boss;
@@ -61,7 +74,8 @@ const HUD = {
     const k = World.near;
     const key = Input.last === 'touch' ? 'Tap USE' : Input.last === 'pad' ? 'X' : 'E';
     const hold = Input.last === 'touch' ? 'hold USE' : Input.last === 'pad' ? 'hold X' : 'hold E';
-    this.salvHint = k && (k.kind === 'weapon' || k.kind === 'relic') ? (World.canSalvage(k) ? `  ·  ${hold} to salvage for ${World.salvageValue(k)} embers` : '  ·  from your stash') : '';
+    const bagKey = Input.last === 'touch' ? 'BAG' : Input.last === 'pad' ? 'D-pad ↓' : 'V';
+    this.salvHint = k && (k.kind === 'weapon' || k.kind === 'relic') ? (World.canSalvage(k) ? `  ·  ${hold} to salvage for ${World.salvageValue(k)} embers` : '  ·  from your stash') + (World.canBag() ? `  ·  ${bagKey} to ${World.canSalvage(k) ? 'bag it' : 'send back'}` : '') : '';
     if (k && k.kind === 'weapon') this.compare(c, W, H, p, k.w, key, font);
     else if (k) {
       let title, line1, line2 = '', col;
@@ -143,8 +157,25 @@ const HUD = {
     c.textAlign = 'center'; c.fillStyle = '#ffb057'; c.font = font(12, 800);
     c.fillText(`${key} to ${cur ? 'swap' : 'take'}${this.salvHint || ''}`, W / 2, y + h + 18);
   },
+  // Mana is shared by every wand and staff, so it gets its own bar. Length follows the pool, one tick per 10.
+  manaBar(c, W, y, p, w, font) {
+    const per = 2.4, bw = Math.min(W - 40, p.maxMana * per), x = (W - bw) / 2, hgt = 8;
+    const uses = w && (w.type === 'wand' || w.type === 'staff');
+    c.fillStyle = 'rgba(10,6,20,0.75)'; roundRect(c, x - 3, y - 3, bw + 6, hgt + 6, 5); c.fill();
+    c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(x, y, bw, hgt);
+    const red = p.exhausted || p.manaFlash > 0;
+    c.globalAlpha = uses || red ? 1 : 0.6;
+    c.fillStyle = red ? '#ff4d6d' : '#4fa3ff'; c.fillRect(x, y, bw * clamp(p.mana / p.maxMana, 0, 1), hgt);
+    c.globalAlpha = 1;
+    c.fillStyle = 'rgba(10,6,20,0.85)';
+    for (let m = 10; m < p.maxMana; m += 10) c.fillRect(x + bw * m / p.maxMana - 0.75, y, 1.5, hgt);
+    if (p.exhausted) { const hx = x + bw * 0.5; c.fillStyle = '#ffe066'; c.fillRect(hx - 1, y - 3, 2, hgt + 6); } // casting comes back here
+    c.textAlign = 'right'; c.fillStyle = red ? '#ff8a9a' : 'rgba(160,200,255,0.75)'; c.font = font(10, 800);
+    c.fillText(Math.floor(p.mana), x - 8, y + hgt);
+    return y + hgt;
+  },
   slots(c, W, H, p, pad, font) { // potion (R) and relic (F)
-    const tch = Input.last === 'touch', sz = 44, x0 = pad, y0 = tch ? pad + 140 : H - pad - 64 - 46 - sz - 22;
+    const tch = Input.last === 'touch', sz = 44, x0 = pad, y0 = tch ? pad + 140 : H - pad - sz - 14;
     const box = (i, label, key, draw, sub) => {
       if (tch) return; // touch shows these on its own buttons
       const x = x0 + i * (sz + 8);
@@ -167,7 +198,7 @@ const HUD = {
   enemyBox(c, W, H, pad, font) { // name of the last thing you hit
     const lh = World.lastHit; if (!lh || lh.t <= 0) return;
     const e = lh.e, a = clamp(lh.t / 0.5, 0, 1), bw = 170, tch = Input.last === 'touch';
-    const x = tch ? pad : (W - bw) / 2, y = tch ? pad + 92 : pad;
+    const x = pad, y = pad + 92;
     c.globalAlpha = a;
     c.fillStyle = 'rgba(14,9,28,0.75)'; roundRect(c, x, y, bw, 40, 8); c.fill();
     c.textAlign = 'left'; c.fillStyle = e.D.c; c.font = font(12, 800); c.fillText(e.D.n || '', x + 10, y + 16);
@@ -211,6 +242,7 @@ const HUD = {
     const p = World.players[0], w = p.weapons[p.wi];
     for (const b of Input.touchButtons()) {
       if (b.id === 'use' && !World.near) continue;
+      if (b.id === 'bag' && !World.canBag()) continue;
       if (b.id === 'swap' && p.weapons.length < 2) continue;
       if (b.id === 'potion' && !p.potion) continue;
       if (b.id === 'relic' && !(p.relic && relicById(p.relic).active)) continue;
@@ -221,15 +253,23 @@ const HUD = {
         continue;
       }
       const held = b.id === 'attack' && Input.atk !== null;
-      c.fillStyle = b.id === 'use' ? 'rgba(255,176,87,0.35)' : b.id === 'attack' ? (held ? 'rgba(255,122,42,0.45)' : 'rgba(255,122,42,0.22)') : 'rgba(40,28,80,0.55)';
+      c.fillStyle = b.id === 'bag' ? 'rgba(150,90,255,0.4)' : b.id === 'use' ? 'rgba(255,176,87,0.35)' : b.id === 'attack' ? (held ? 'rgba(255,122,42,0.45)' : 'rgba(255,122,42,0.22)') : 'rgba(40,28,80,0.55)';
       c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill();
       c.strokeStyle = b.id === 'attack' ? 'rgba(255,200,140,0.7)' : 'rgba(233,228,255,0.4)'; c.lineWidth = b.id === 'attack' ? 2.5 : 1.5; c.stroke();
       if (b.id === 'attack') { weaponIcon(c, w, b.x, b.y, b.r * 1.0, -0.8); continue; }
       c.fillStyle = '#f4eeff'; c.textAlign = 'center'; c.font = `800 ${Math.round(b.r * 0.42)}px ui-rounded, system-ui, sans-serif`;
-      c.fillText({ roll: p.cls === 'mage' ? 'BLINK' : 'ROLL', swap: 'SWAP', use: 'USE', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
+      c.fillText({ roll: p.cls === 'mage' ? 'BLINK' : 'ROLL', swap: 'SWAP', use: 'USE', bag: 'BAG', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
     }
   },
 };
+// Void Bag contents for the pause screen: look, don't touch
+function bagHtml() {
+  if (Game.mode !== 'campaign' || !Game.bag) return '';
+  const B = Game.bag, n = B.weapons.length + B.relics.length;
+  const rows = B.weapons.map(w => `<div class="card"><div class="grow"><b style="color:${RARITY[w.rarity].c}">${esc(w.name)}</b><small>${RARITY[w.rarity].n} ${w.type} · ${weaponLine(w)}</small></div></div>`)
+    .concat(B.relics.map(id => { const D = relicById(id); return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b><small>${D.d}</small></div></div>`; })).join('');
+  return `<div class="sub" style="margin:12px 0 4px">Void Bag · ${n ? n + ' item' + (n > 1 ? 's' : '') + '. Beat the boss to bank them, or recover them from your remains.' : 'Empty. Press ' + (Input.last === 'touch' ? 'BAG' : Input.last === 'pad' ? 'D-pad down' : 'V') + ' near a weapon or relic to send it home.'}</div><div class="list">${rows}</div>`;
+}
 function wrapText(c, s, w, max) {
   const words = s.split(' '), out = []; let line = '';
   for (const wd of words) { const t = line ? line + ' ' + wd : wd; if (c.measureText(t).width > w && line) { out.push(line); line = wd; } else line = t; }
@@ -267,6 +307,7 @@ const Game = {
     this.seedNum = strHash(this.seed);
     const sec = this.mode === 'quick' ? SECRETS[this.seedNum] : null;
     this.secret = sec || null; this.mods = sec ? { ...sec.mods } : {};
+    this.bag = { weapons: [], relics: [] }; // campaign Void Bag: banks on a win, rides with your corpse
     this.runEmbers = 0; this.runXp = 0; this.runTime = 0; this.deadT = 0; this.hs = 0; this.keysSpawned = 0; this.chestsSpawned = 0;
     Meta.data.stats.runs++; Meta.save();
     Music.setSeed(this.seedNum); Music.on = true;
@@ -429,7 +470,7 @@ const Menu = {
       M.seeds.forEach((s, i) => { this.on('play-' + i, () => this.show('class', s.seed)); this.on('del-' + i, () => { M.seeds.splice(i, 1); Meta.save(); this.show('saved'); }); });
       this.on('b-back', () => this.show('title'));
     } else if (name === 'sanctum') {
-      const rows = UNLOCKS.map(u => {
+      const rows = UNLOCKS.filter(u => !u.camp).map(u => {
         const own = Meta.has(u.id), locked = u.req && !Meta.has(u.req);
         return `<div class="card"><div class="grow"><b>${u.n}</b><small>${locked ? 'Requires ' + UNLOCKS.find(x => x.id === u.req).n : u.d}</small></div>${own ? '<span class="ember">✓</span>' : `<button class="btn" id="u-${u.id}" ${M.embers < u.cost || locked ? 'disabled' : ''}>${u.cost} ◆</button>`}</div>`;
       }).join('');
@@ -439,7 +480,7 @@ const Menu = {
         <div class="hint">Secret seeds found: ${found.length} / ${Object.keys(SECRETS).length}${found.length ? ' · <span class="secret">' + found.join(', ') + '</span>' : ''}<br>Runs ${M.stats.runs} · Escapes ${M.stats.wins} · Deepest level ${M.stats.bestDepth ? levelLabel(Math.ceil(M.stats.bestDepth / 3), (M.stats.bestDepth - 1) % 3 + 1) : '-'} · Foes slain ${M.stats.kills}</div>
         <div class="row"><button class="btn small" id="b-back">Back</button><button class="btn small" id="b-reset">Reset Progress</button></div>`);
       this.on('b-reset', () => { const b = document.getElementById('b-reset'); if (b.dataset.armed) { M.embers = 0; M.unlocks = {}; Meta.save(); this.show('sanctum'); } else { b.dataset.armed = 1; b.textContent = 'Tap again to wipe embers + unlocks'; } });
-      for (const u of UNLOCKS) this.on('u-' + u.id, () => { if (M.embers >= u.cost) { M.embers -= u.cost; M.unlocks[u.id] = 1; Meta.save(); Snd.play('item'); this.show('sanctum'); } });
+      for (const u of UNLOCKS.filter(u => !u.camp)) this.on('u-' + u.id, () => { if (M.embers >= u.cost) { M.embers -= u.cost; M.unlocks[u.id] = 1; Meta.save(); Snd.play('item'); this.show('sanctum'); } });
       this.on('b-back', () => this.show('title'));
     } else if (name === 'pause') {
       const p = World.players[0];
@@ -447,7 +488,7 @@ const Menu = {
       const syn = p.syn.map(id => SYNERGIES.find(s => s.id === id)).map(s => `<div class="card"><div class="grow"><b class="secret">✦ ${s.n}</b><small>${s.d}</small></div></div>`).join('');
       this.html(`<h2>Paused</h2><div class="sub"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
         <div class="stats" style="grid-template-columns:auto auto auto auto;max-width:540px;font-size:14px">${statBlock(p)}</div>
-        <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>
+        <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>${bagHtml()}
         <button class="btn" id="b-res">Resume</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button></div>
         <button class="btn small" id="b-quit">Abandon Run</button>`);

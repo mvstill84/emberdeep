@@ -57,6 +57,10 @@ const Render = {
     for (const s of World.parts) if (!s.glow && !s.ring) { c.globalAlpha = clamp(s.life / s.max, 0, 1) * 0.5; c.fillStyle = s.color; c.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size); }
     c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
     for (const e of World.enemies) this.enemy(e);
+    const mk = World.mark; if (mk && !mk.dead && mk.spawnT <= 0) { // Hunter's Mark
+      const rr = mk.r * 1.15 + 6 + Math.sin(World.time * 6) * 1.5; c.save(); c.translate(mk.x, mk.y); c.rotate(World.time * 1.2); c.strokeStyle = 'rgba(255,90,90,0.85)'; c.lineWidth = 2;
+      for (let i = 0; i < 4; i++) { c.rotate(TAU / 4); c.beginPath(); c.arc(0, 0, rr, -0.45, 0.45); c.stroke(); c.beginPath(); c.moveTo(rr - 4, 0); c.lineTo(rr + 5, 0); c.stroke(); }
+      c.restore(); }
     this.allies();
     for (const p of World.players) if (!p.dead) this.player(p);
     this.fx();
@@ -196,6 +200,10 @@ const Render = {
     const pl = World.players[0];
     if (pl && pl.salvT > 0 && pl.salvK && !pl.salvK.gone) { // salvage progress ring
       const k = pl.salvK; c.strokeStyle = '#ffb057'; c.lineWidth = 3; c.beginPath(); c.arc(k.x, k.y, 22, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(pl.salvT / 0.5, 0, 1)); c.stroke();
+    }
+    for (const s of World.slime) { // cube slick, fading out
+      const a = clamp(s.life / s.max, 0, 1);
+      c.fillStyle = `rgba(95,220,180,${0.2 * a})`; c.beginPath(); c.ellipse(s.x, s.y, s.r, s.r * 0.78, 0, 0, TAU); c.fill();
     }
     for (const h of World.hazards) {
       if (h.fire) { c.globalCompositeOperation = 'lighter'; this.drawGlow('#ff7a2a', h.x, h.y, h.r * 1.6, clamp(h.life, 0, 1) * 0.6); this.drawGlow('#ffd27a', h.x, h.y, h.r * 0.7, clamp(h.life, 0, 1) * 0.5); c.globalCompositeOperation = 'source-over'; continue; }
@@ -382,8 +390,8 @@ const Render = {
         c.fillStyle = '#ffe066'; c.beginPath(); c.arc(r * 0.5, -r * 0.3, 1.8, 0, TAU); c.arc(r * 0.5, r * 0.3, 1.8, 0, TAU); c.fill();
         break;
       }
-      case 'cube': {
-        const wob = Math.sin(t * 3 + e.x) * 1.5;
+      case 'cube': case 'cubeling': {
+        const r = e.r * 1.15, wob = Math.sin(t * 3 + e.x) * r * 0.08;
         c.globalAlpha = 0.45; c.fillStyle = col; roundRect(c, -r - wob, -r + wob, (r + wob) * 2, (r - wob) * 2, 4); c.fill();
         c.globalAlpha = 1; c.strokeStyle = hexA('#bfffef', 0.8); c.lineWidth = 2; roundRect(c, -r - wob, -r + wob, (r + wob) * 2, (r - wob) * 2, 4); c.stroke();
         c.fillStyle = 'rgba(255,255,255,0.25)'; c.fillRect(-r * 0.7, -r * 0.7, r * 0.5, r * 0.25);
