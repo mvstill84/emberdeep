@@ -1,5 +1,5 @@
 // ===== Boot =====
-Meta.load();
+Dev.init(); Meta.load();
 Render.init();
 Input.init(Render.cv);
 Menu.el = document.getElementById('menu');

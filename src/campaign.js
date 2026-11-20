@@ -131,7 +131,7 @@ const CampScreens = {
       <div class="list">${worlds}</div>
       <div class="row"><button class="btn small" id="b-load">Loadout</button><button class="btn small" id="b-hsanct">Sanctum</button><button class="btn small" id="b-hshop">Shop</button></div>
       <button class="btn small" id="b-back">Heroes</button>`);
-    for (const w of [1, 2, 3]) { Menu.on('go-' + w, () => Campaign.start(i, w, false)); Menu.on('corpse-' + w, () => Campaign.start(i, w, true)); }
+    for (let w = 1; w <= WORLD_COUNT; w++) { Menu.on('go-' + w, () => Campaign.start(i, w, false)); Menu.on('corpse-' + w, () => Campaign.start(i, w, true)); }
     Menu.on('b-load', () => Menu.show('loadout', i));
     Menu.on('b-hsanct', () => Menu.show('heroSanctum', i));
     Menu.on('b-hshop', () => Menu.show('heroShop', i));

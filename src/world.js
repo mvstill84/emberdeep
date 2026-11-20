@@ -510,6 +510,7 @@ const World = {
     else if (inp.device !== 'kb' && (inp.mx || inp.my) && !p.charge) p.aim = Math.atan2(inp.my, inp.mx);
     p.inv -= dt; p.rollCd -= dt; p.slowT -= dt; p.lungeWin -= dt; p.manaIdle += dt; p.parryT -= dt; p.swapT -= dt;
     p.mana = Math.min(p.maxMana, p.mana + dt * (p.exhausted ? 10 : p.manaIdle > 0.9 ? 34 : 14) * p.manaRegen); p.blinkInv -= dt; p.thornCd = (p.thornCd || 0) - dt;
+    if (Dev.active('mana')) { p.mana = p.maxMana; p.exhausted = false; }
     if (p.exhausted && p.mana >= p.maxMana * 0.5) { p.exhausted = false; Snd.play('charge'); }
     if (p.stolen) { // a gelatinous cube is holding one of your weapons
       p.stolen.t -= dt;
@@ -813,6 +814,8 @@ const World = {
       if (!src.burn && (!this.mark || this.mark.dead) && e.type !== 'banner' && e.type !== 'crystal') { this.mark = e; this.text(e.x, e.y - e.r - 14, 'Marked', '#ff6b6b'); }
       if (this.mark === e) dmg *= 1.25;
     }
+    if (Dev.active('oneHit') && !src.burn) dmg = Math.max(dmg, e.hp + 1);
+    if (Dev.active('dmgNums')) this.texts.push({ x: e.x + R.range(-8, 8), y: e.y - e.r - 6, s: String(Math.round(dmg)), c: src.crit ? '#ffe066' : src.burn ? '#ff9a5a' : '#ffffff', life: 0.8 });
     e.hp -= dmg; e.flash = 0.09;
     if (src.crit) this.text(e.x, e.y - e.r - 6, Math.round(dmg) + '!', '#ffd27a');
     if (src.stun) e.stun = Math.max(e.stun || 0, src.stun * (e.boss ? 0.12 : 1));
@@ -915,6 +918,7 @@ const World = {
 
   hurt(p, n = 1) {
     if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.blinkInv > 0 || p.dead || Game.state !== 'play') return;
+    if (Dev.active('god')) { this.text(p.x, p.y - 24, 'God mode', '#ff6bd5'); p.inv = 0.4; return; }
     if (p.relic === 'displace' && p.dispReady) { p.dispReady = false; p.inv = 0.8; this.text(p.x, p.y - 24, 'Missed!', '#7fd8ff'); this.burst(p.x, p.y, 14, '#7fd8ff', 160, 0.4); Snd.play('blink'); return; }
     if (p.guard) { // Fighter's Guard eats one hit
       p.guard = false; p.guardT = 0; p.inv = 0.8; this.text(p.x, p.y - 24, 'Blocked!', '#cfe3ff'); this.burst(p.x, p.y, 18, '#cfe3ff', 200, 0.4); Snd.play('deflect'); Render.kick(4);
@@ -1307,7 +1311,7 @@ const World = {
     this.flowKey = -1; Snd.play('roar'); Game.banner('', 'Thorn walls rise', 1.2);
   },
   spawnBoss(r) {
-    const rng = RNG(hash(Game.seedNum, this.world, 909)), B = rng.pick(this.theme.bosses);
+    const rng = RNG(hash(Game.seedNum, this.world, 909)), B = (Game.devBoss && this.theme.bosses.find(b => b.id === Game.devBoss)) || rng.pick(this.theme.bosses);
     const hp = (640 + 150 * this.depth) * ((Game.diff && Game.diff.boss) || 1);
     const D = { hp, r: B.r || 30, sp: 38, c: B.c, ai: 'boss', touch: 2, embers: 0 };
     const e = { type: 'boss', D, B, boss: true, look: B.look, x: r.mx * T + T / 2, y: (r.my - 2) * T + T / 2, r: D.r, hp, maxHp: hp, kx: 0, ky: 0, spawnT: 1.4, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: 0, state: 0, cool: 1.5, face: Math.PI / 2, dead: false, phase: 1, vuln: 0 };

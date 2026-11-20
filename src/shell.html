@@ -16,7 +16,7 @@
 html,body{height:100%;background:#0b0816;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 body{font-family:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,Segoe UI,sans-serif;color:#e9e4ff}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
-button,input,textarea{touch-action:manipulation}
+button,input,textarea,select{touch-action:manipulation}
 #menu{position:fixed;inset:0;display:flex;background:rgba(8,5,18,.78);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);z-index:5;padding:20px;overflow:auto}
 #menu.hidden{display:none}
 .panel{width:min(560px,100%);text-align:center;margin:auto}
@@ -28,6 +28,7 @@ h2{font-size:28px;margin-bottom:14px;color:#ffcf8a}
 .btn.small{font-size:15px;padding:10px 12px}
 .btn:disabled{opacity:.4;cursor:default;box-shadow:none;border-color:#3a2f60}
 .code{display:block;width:100%;height:84px;margin:8px 0;padding:10px;font:12px ui-monospace,Menlo,monospace;color:#e8dcff;background:#120c24;border:1px solid #5b47a0;border-radius:10px;resize:none;word-break:break-all;-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+.dsec{margin:18px 0 6px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;font-size:12px;color:#ffb0ec;text-align:left}.drow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0;font-size:14px}.dsel,.dnum{font:inherit;font-size:14px;color:#f4eeff;background:#1c1436;border:1px solid #5b47a0;border-radius:8px;padding:7px 8px}.dnum{width:64px}.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 10px;text-align:left;font-size:14px}.dchk{display:flex;gap:6px;align-items:center;cursor:pointer}
 .row{display:flex;gap:10px}.row .btn{flex:1}
 input.seed{width:100%;padding:14px;font:inherit;font-size:24px;letter-spacing:.15em;text-align:center;text-transform:uppercase;background:#140e26;color:#ffe2b0;border:1px solid #5b47a0;border-radius:12px;outline:none}
 input.seed:focus{border-color:#ffb057}

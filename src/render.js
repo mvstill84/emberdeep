@@ -64,6 +64,7 @@ const Render = {
     this.allies();
     for (const p of World.players) if (!p.dead) this.player(p);
     this.fx();
+    Dev.drawWorld(c);
     c.setTransform(1, 0, 0, 1, 0, 0);
     if (Game.mods.dark || World.bossDark) this.darkness();
     const bb = World.boss;

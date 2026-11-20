@@ -63,7 +63,7 @@ const Screen = {
 };
 
 // ===== Persistent meta (embers, unlocks, saved seeds, secrets) =====
-const SAVE_KEY = 'emberdeep.v1';
+const SAVE_KEY = (() => { try { return localStorage.getItem('emberdeep.devmode') === '1' ? 'emberdeep.dev' : 'emberdeep.v1'; } catch (e) { return 'emberdeep.v1'; } })(); // dev mode plays on a sandbox copy
 const Meta = {
   data: { embers: 0, unlocks: {}, seeds: [], secrets: {}, stats: { runs: 0, wins: 0, bestDepth: 0, kills: 0 }, muted: false },
   load() {

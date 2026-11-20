@@ -61,6 +61,7 @@ const HUD = {
     this.slots(c, W, H, p, pad, font);
     if (swapY && !tch) { c.textAlign = 'center'; c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', W / 2, swapY); }
     this.minimap(c, W, pad, font);
+    Dev.drawHud(c, W, H, font, dt);
     // boss bar
     const b = World.boss;
     if (b && b.spawnT <= 0) {
@@ -302,7 +303,7 @@ const Game = {
     if (!opts.campaign) this.char = null;
     this.diff = this.DIFF[this.mode];
     this.cls = cls || Meta.data.lastClass || 'fighter';
-    if (this.mode === 'quick') { if (this.cls !== 'fighter' && !Meta.has(this.cls)) this.cls = 'fighter'; Meta.data.lastClass = this.cls; }
+    if (this.mode === 'quick') { if (this.cls !== 'fighter' && !Meta.has(this.cls) && !Dev.on) this.cls = 'fighter'; Meta.data.lastClass = this.cls; }
     this.seed = normSeed(seedStr) || randomSeed();
     this.seedNum = strHash(this.seed);
     const sec = this.mode === 'quick' ? SECRETS[this.seedNum] : null;
@@ -356,6 +357,7 @@ const Game = {
     if (Input.pressed.has('m')) Snd.setMuted(!Meta.data.muted);
     let rdt = 0;
     if (this.state === 'play') {
+      if (Dev.on && Dev.opt.speed !== 1) dt *= Dev.opt.speed;
       rdt = dt;
       if (this.hs > 0) { this.hs -= dt; rdt = dt * 0.15; }
       else { World.update(dt); this.runTime += dt; }
@@ -392,8 +394,10 @@ const Menu = {
         <div class="row"><button class="btn small" id="b-seed">Quick Play a Seed</button><button class="btn small" id="b-saved">Saved Seeds</button></div>
         <button class="btn small" id="b-sanct">Quick-play Sanctum · <span class="ember">${M.embers}</span></button>
         <div class="row"><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button><button class="btn small" id="b-data">Save Data</button></div>
-        <div class="hint">${ctrl}</div><div class="hint" style="margin-top:8px">Build ${BUILD}</div>`);
+        ${Dev.on ? '<button class="btn small" id="b-dev" style="border-color:#ff6bd5;color:#ffb0ec">Developer Mode</button>' : ''}
+        <div class="hint">${ctrl}</div><div class="hint" style="margin-top:8px">Build ${BUILD}${Dev.on ? ' · <span style="color:#ff6bd5">DEV SANDBOX</span>' : ''}</div>`);
       this.on('b-data', () => this.show('data'));
+      this.on('b-dev', () => Dev.menu());
       this.on('b-camp', () => this.show('camp'));
       this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
@@ -427,11 +431,12 @@ const Menu = {
       });
     } else if (name === 'seed') {
       this.html(`<h2>Enter a Seed</h2><div class="sub">Same seed, same dungeon. Some seeds hold secrets.</div>
-        <input class="seed" id="seedin" maxlength="16" placeholder="${randomSeed()}" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <input class="seed" id="seedin" maxlength="24" placeholder="${randomSeed()}" autocomplete="off" autocapitalize="characters" spellcheck="false">
         <button class="btn" id="b-go">Descend</button><button class="btn small" id="b-back">Back</button>`);
       const inp = document.getElementById('seedin'); setTimeout(() => inp.focus(), 50);
-      inp.onkeydown = e => { if (e.key === 'Enter') this.show('class', inp.value || inp.placeholder); };
-      this.on('b-go', () => this.show('class', inp.value || inp.placeholder));
+      const go = () => { if (Dev.isCode(inp.value)) { if (Dev.on) Dev.menu(); else { this.html('<h2 style="color:#ff6bd5">Power overwhelming</h2><div class="sub">Developer mode on. Switching to a sandbox copy of your save…</div>'); setTimeout(() => Dev.enter(), 900); } return; } this.show('class', inp.value || inp.placeholder); };
+      inp.onkeydown = e => { if (e.key === 'Enter') go(); };
+      this.on('b-go', go);
       this.on('b-back', () => this.show('title'));
     } else if (name === 'shop') {
       Shop.ensure();
@@ -491,7 +496,8 @@ const Menu = {
         <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>${bagHtml()}
         <button class="btn" id="b-res">Resume</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button></div>
-        <button class="btn small" id="b-quit">Abandon Run</button>`);
+        <button class="btn small" id="b-quit">Abandon Run</button>${Dev.pausePanel()}`);
+      Dev.bindPause();
       this.on('b-res', () => Game.togglePause());
       p.items.forEach((id, i) => this.on('drop-' + i, () => { World.dropItem(p, i); this.show('pause'); }));
       this.on('b-save', () => { Game.saveSeed(); document.getElementById('b-save').textContent = 'Saved ✓'; });
