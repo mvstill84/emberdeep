@@ -52,7 +52,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 16;
+const BUILD = 17;
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -281,7 +281,7 @@ const Input = {
   },
   endFrame() {
     this.pressed.clear(); this.mouse.rPressed = false;
-    this.tbtn.roll = this.tbtn.swap = this.tbtn.use = this.tbtn.potion = this.tbtn.relic = false;
+    this.tbtn.roll = this.tbtn.swap = this.tbtn.use = this.tbtn.potion = this.tbtn.relic = this.tbtn.bag = false;
     for (const p of this.pads()) this.padPrev[p.index] = p.buttons.map(b => b.pressed);
   },
 };

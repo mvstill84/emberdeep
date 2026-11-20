@@ -227,7 +227,7 @@ const Input = {
   },
   endFrame() {
     this.pressed.clear(); this.mouse.rPressed = false;
-    this.tbtn.roll = this.tbtn.swap = this.tbtn.use = this.tbtn.potion = this.tbtn.relic = false;
+    this.tbtn.roll = this.tbtn.swap = this.tbtn.use = this.tbtn.potion = this.tbtn.relic = this.tbtn.bag = false;
     for (const p of this.pads()) this.padPrev[p.index] = p.buttons.map(b => b.pressed);
   },
 };
