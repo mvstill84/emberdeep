@@ -515,6 +515,8 @@ const World = {
   },
   caltrop(p) { // Ranger: spikes left behind while rolling
     this.ptraps.push({ x: p.x + R.range(-6, 6), y: p.y + R.range(-6, 6), r: 12, life: 6, hits: 2, dmg: 6 * p.st.dmg * p.st.rangedDmg, p, a: R() * TAU });
+    const mine = this.ptraps.filter(t => t.p === p && !t.fading); // cap of 6: the oldest fade out
+    for (let i = 0; i < mine.length - 6; i++) { mine[i].fading = true; mine[i].life = Math.min(mine[i].life, 0.4); }
   },
   cutShots(p, s) {
     const ca = Math.cos(s.a), sa = Math.sin(s.a);
@@ -1145,7 +1147,7 @@ const World = {
     for (const t of this.ptraps) {
       t.life -= dt;
       for (const e of this.enemies) {
-        if (t.hits <= 0 || e.dead || e.spawnT > 0 || e.air || e.bones > 0 || e.ghost) continue;
+        if (t.fading || t.hits <= 0 || e.dead || e.spawnT > 0 || e.air || e.bones > 0 || e.ghost) continue;
         if (d2(t.x, t.y, e.x, e.y) < (t.r + e.r) ** 2 && !(t.hitSet || (t.hitSet = new Set())).has(e)) {
           t.hitSet.add(e); t.hits--; e.chill = Math.max(e.chill, 1.4);
           this.damage(e, t.dmg, { x: t.x, y: t.y, depth: 1, elem: 'none', p: t.p });
