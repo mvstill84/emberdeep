@@ -3,6 +3,9 @@ const SCRAP = [5, 15, 40, 100, 250]; // embers for scrapping a weapon, by rarity
 // XP curve v2: about one level per world clear early on, slowing down after that
 const xpNeed = lvl => Math.round(100 * Math.pow(lvl, 1.6));
 const xpNeedV1 = lvl => Math.round(80 * Math.pow(lvl, 1.35));
+// Each world has a level band. XP tapers near the top so easy worlds can't be farmed for levels.
+const XP_BANDS = [null, 3, 6, 10]; // top level of each world's band
+function xpMult(lvl, world) { const top = XP_BANDS[world]; return lvl >= top ? 0.05 : lvl === top - 1 ? 0.5 : 1; }
 function migrateHero(h) { // heroes made on the old, faster curve get re-leveled from their total XP
   if (!h || h.xpv === 2) return;
   let total = h.xp; for (let l = 1; l < h.lvl; l++) total += xpNeedV1(l);
@@ -38,8 +41,14 @@ const Campaign = {
   finish(won) {
     const h = Game.char, p = World.players[0], W = World.world;
     const res = { won, embers: Game.runEmbers, xp: Game.runXp, levels: 0, banked: [], lost: [] };
-    h.embers += Game.runEmbers; h.xp += Game.runXp; h.stats.kills += p.kills;
-    while (h.xp >= xpNeed(h.lvl)) { h.xp -= xpNeed(h.lvl); h.lvl++; res.levels++; }
+    h.embers += Game.runEmbers; h.stats.kills += p.kills;
+    let raw = Game.runXp, gained = 0; // apply XP level by level, since the taper depends on the level you're at
+    while (raw > 0) {
+      const m = xpMult(h.lvl, W), need = xpNeed(h.lvl) - h.xp;
+      if (raw * m >= need) { raw -= need / m; gained += need; h.xp = 0; h.lvl++; res.levels++; }
+      else { h.xp += raw * m; gained += raw * m; raw = 0; }
+    }
+    h.xp = Math.round(h.xp); res.xp = Math.round(gained); res.xpNote = xpMult(h.lvl, W) < 1 ? (xpMult(h.lvl, W) <= 0.05 ? `${WORLDS[W].n} no longer grants XP at your level` : `${WORLDS[W].n} grants reduced XP at your level`) : '';
     if (Game.loadPotion && p.potion !== Game.loadPotion) { // the packed potion got drunk (or swapped away)
       const i = h.stash.potions.indexOf(Game.loadPotion); if (i >= 0) h.stash.potions.splice(i, 1);
       if (!h.stash.potions.includes(h.load.potion)) h.load.potion = null;
@@ -109,7 +118,8 @@ const CampScreens = {
       const btns = !open ? '<small style="display:inline">Locked</small>' : here
         ? `<button class="btn" id="corpse-${w}">Return to remains</button><button class="btn" id="go-${w}">New dungeon</button>`
         : `<button class="btn" id="go-${w}">Descend</button>`;
-      return `<div class="card" style="${open ? '' : 'opacity:.5'}"><div class="grow"><b style="color:${WORLDS[w].tint}">${WORLDS[w].n}</b>${w <= h.cleared ? ' <span class="secret">✓</span>' : ''}<small>${here ? `Your remains lie on level ${levelLabel(w, cp.stage)}` : w <= h.cleared ? 'Cleared. Replay to farm gear.' : open ? 'Beat the boss on ' + levelLabel(w, 3) + ' to clear' : 'Clear the world before it'}</small></div>${btns}</div>`;
+      const xm = xpMult(h.lvl, w), xpTag = !open ? '' : xm <= 0.05 ? ' <small style="display:inline;color:#ff8a8a">· No longer grants XP</small>' : xm < 1 ? ' <small style="display:inline;color:#ffb057">· Reduced XP</small>' : '';
+      return `<div class="card" style="${open ? '' : 'opacity:.5'}"><div class="grow"><b style="color:${WORLDS[w].tint}">${WORLDS[w].n}</b>${w <= h.cleared ? ' <span class="secret">✓</span>' : ''}${xpTag}<small>${here ? `Your remains lie on level ${levelLabel(w, cp.stage)}` : w <= h.cleared ? 'Cleared. Replay to farm gear.' : open ? 'Beat the boss on ' + levelLabel(w, 3) + ' to clear' : 'Clear the world before it'}</small></div>${btns}</div>`;
     }).join('');
     const pct = Math.round(h.xp / xpNeed(h.lvl) * 100);
     Menu.html(`<h2 style="margin-bottom:4px">${esc(h.name)}</h2><div class="sub" style="margin-bottom:12px"><span style="color:${C.c}">Level ${h.lvl} ${C.n}</span> · XP ${pct}% · <span class="ember">${h.embers} embers</span></div>
@@ -168,7 +178,7 @@ const CampScreens = {
       ? `<h1 style="font-size:clamp(34px,7vw,56px)">WORLD CLEARED</h1><div class="sub">${WORLDS[World.world].n} is yours.${r.unlocked ? ` <b>${r.unlocked}</b> is now open.` : ''}</div>
          <div class="sub">${r.banked.length ? 'Added to your stash: <b>' + r.banked.map(esc).join(', ') + '</b>' : 'No new gear this time.'}</div>`
       : `<h1 style="font-size:clamp(34px,7vw,56px)">FALLEN</h1><div class="sub">${r.lost.length ? `Your remains hold <b>${r.lost.map(esc).join(', ')}</b> on level ${levelLabel(World.world, World.level)}. Return to them on your next run.` : 'You lost nothing you had banked.'}</div>`;
-    Menu.html(`${body}<div class="stats"><span>Embers kept</span><span class="ember">+${r.embers}</span><span>XP</span><span>+${r.xp}${r.levels ? ` · <b class="secret">Level up! Now ${h.lvl}</b>` : ''}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span></div>
+    Menu.html(`${body}<div class="stats"><span>Embers kept</span><span class="ember">+${r.embers}</span><span>XP</span><span>+${r.xp}${r.levels ? ` · <b class="secret">Level up! Now ${h.lvl}</b>` : ''}</span>${r.xpNote ? `<span></span><span style="font-size:12px;opacity:.7">${r.xpNote}</span>` : ''}<span>Time</span><span>${fmtTime(Game.runTime)}</span></div>
       <button class="btn" id="b-hub">Back to ${esc(h.name)}</button>`);
     Menu.on('b-hub', () => Menu.show('hub', i));
   },
