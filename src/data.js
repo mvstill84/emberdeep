@@ -172,6 +172,8 @@ const EDEF = {
   wraith: { n: 'Wraith', hp: 24, r: 11, sp: 120, cost: 2, c: '#9fd8ff', ai: 'wraith', touch: 1, embers: 2 },
   gnoll: { n: 'Gnoll', hp: 32, r: 11, sp: 88, cost: 2, c: '#d9a066', ai: 'flank', touch: 1, embers: 1 },
   blight: { n: 'Twig Blight', hp: 10, r: 8, sp: 110, cost: 1, c: '#a07c4f', ai: 'rush', touch: 1, embers: 1 },
+  rat: { n: 'Giant Rat', hp: 10, r: 8, sp: 118, cost: 1, c: '#9a8470', ai: 'rush', touch: 1, embers: 1 },
+  otyugh: { n: 'Otyugh', hp: 95, r: 18, sp: 46, cost: 4, c: '#8f8a52', ai: 'charger', touch: 1, embers: 3 },
   owlbear: { n: 'Owlbear', hp: 120, r: 17, sp: 62, cost: 4, c: '#b58a5f', ai: 'charger', touch: 2, embers: 3 },
   sprite: { n: 'Fey Sprite', hp: 30, r: 9, sp: 60, cost: 3, c: '#7dffb0', ai: 'blink', touch: 1, embers: 2 },
   crystal: { n: 'Phylactery', hp: 70, r: 12, sp: 0, cost: 0, c: '#7dff7a', ai: 'crystal', touch: 0, embers: 0, anchored: true },
@@ -222,8 +224,19 @@ const WORLDS = [null,
         moves: [['roots', 'seeds', 'summon', 'sweep'], ['thornwall', 'roots', 'seeds', 'summon'], ['brambles', 'thornwall', 'roots', 'seeds']] },
     ],
   },
+  {
+    n: 'The Drowned Sewers', style: 'sewer', tint: '#a8ff4a',
+    floor: ['#1b1e17', '#171a13', '#20241b'], wall: '#23271d', face: '#33392a', pillar: 'barrel', deco: 'drip', breakable: true,
+    pools: [['rat', 'rat', 'kobold', 'cubeling', 'skelArcher'], ['rat', 'kobold', 'cube', 'otyugh', 'skelArcher'], ['rat', 'cube', 'otyugh', 'kobold', 'wraith', 'skelArcher']],
+    bosses: [
+      { id: 'colossus', title: 'the Gelatinous Colossus', look: 'cube', c: '#6fe3c8', r: 46, acid: true, summon: ['cubeling', 'cubeling', 'cubeling', 'cubeling'],
+        tip: 'It weeps acid wherever it goes. Keep moving',
+        moves: [['leap', 'acidspray', 'charge', 'fans'], ['leap', 'acidspray', 'summon', 'charge'], ['leap', 'acidspray', 'summon', 'leap']] },
+    ],
+  },
 ];
-const WORLD_COUNT = 3;
+const WORLD_COUNT = 4;
+const FLIERS = new Set(['stirge', 'wraith', 'sprite']); // float over pits, sludge and acid
 const levelLabel = (w, l) => `${w}-${l}`;
 
 // ===== Sanctum unlocks (permanent). A full run (~250 embers) buys about one. =====

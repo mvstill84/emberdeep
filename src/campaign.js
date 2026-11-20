@@ -4,7 +4,7 @@ const SCRAP = [5, 15, 40, 100, 250]; // embers for scrapping a weapon, by rarity
 const xpNeed = lvl => Math.round(100 * Math.pow(lvl, 1.6));
 const xpNeedV1 = lvl => Math.round(80 * Math.pow(lvl, 1.35));
 // Each world has a level band. XP tapers near the top so easy worlds can't be farmed for levels.
-const XP_BANDS = [null, 3, 6, 10]; // top level of each world's band
+const XP_BANDS = [null, 3, 6, 10, 14]; // top level of each world's band
 function xpMult(lvl, world) { const top = XP_BANDS[world]; return lvl >= top ? 0.05 : lvl === top - 1 ? 0.5 : 1; }
 function migrateHero(h) { // heroes made on the old, faster curve get re-leveled from their total XP
   if (!h || h.xpv === 2) return;
@@ -118,7 +118,7 @@ const CampScreens = {
   hub(i) {
     Game.state = 'menu'; World.map = null;
     const h = Campaign.hero(i), C = CLASSES[h.cls], cp = h.corpse;
-    const worlds = [1, 2, 3].map(w => {
+    const worlds = Array.from({ length: WORLD_COUNT }, (_, i) => i + 1).map(w => {
       const open = w <= h.cleared + 1, here = cp && cp.world === w;
       const btns = !open ? '<small style="display:inline">Locked</small>' : here
         ? `<button class="btn" id="corpse-${w}">Return to remains</button><button class="btn" id="go-${w}">New dungeon</button>`

@@ -52,7 +52,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 17;
+const BUILD = 18;
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -572,6 +572,8 @@ const EDEF = {
   wraith: { n: 'Wraith', hp: 24, r: 11, sp: 120, cost: 2, c: '#9fd8ff', ai: 'wraith', touch: 1, embers: 2 },
   gnoll: { n: 'Gnoll', hp: 32, r: 11, sp: 88, cost: 2, c: '#d9a066', ai: 'flank', touch: 1, embers: 1 },
   blight: { n: 'Twig Blight', hp: 10, r: 8, sp: 110, cost: 1, c: '#a07c4f', ai: 'rush', touch: 1, embers: 1 },
+  rat: { n: 'Giant Rat', hp: 10, r: 8, sp: 118, cost: 1, c: '#9a8470', ai: 'rush', touch: 1, embers: 1 },
+  otyugh: { n: 'Otyugh', hp: 95, r: 18, sp: 46, cost: 4, c: '#8f8a52', ai: 'charger', touch: 1, embers: 3 },
   owlbear: { n: 'Owlbear', hp: 120, r: 17, sp: 62, cost: 4, c: '#b58a5f', ai: 'charger', touch: 2, embers: 3 },
   sprite: { n: 'Fey Sprite', hp: 30, r: 9, sp: 60, cost: 3, c: '#7dffb0', ai: 'blink', touch: 1, embers: 2 },
   crystal: { n: 'Phylactery', hp: 70, r: 12, sp: 0, cost: 0, c: '#7dff7a', ai: 'crystal', touch: 0, embers: 0, anchored: true },
@@ -622,8 +624,19 @@ const WORLDS = [null,
         moves: [['roots', 'seeds', 'summon', 'sweep'], ['thornwall', 'roots', 'seeds', 'summon'], ['brambles', 'thornwall', 'roots', 'seeds']] },
     ],
   },
+  {
+    n: 'The Drowned Sewers', style: 'sewer', tint: '#a8ff4a',
+    floor: ['#1b1e17', '#171a13', '#20241b'], wall: '#23271d', face: '#33392a', pillar: 'barrel', deco: 'drip', breakable: true,
+    pools: [['rat', 'rat', 'kobold', 'cubeling', 'skelArcher'], ['rat', 'kobold', 'cube', 'otyugh', 'skelArcher'], ['rat', 'cube', 'otyugh', 'kobold', 'wraith', 'skelArcher']],
+    bosses: [
+      { id: 'colossus', title: 'the Gelatinous Colossus', look: 'cube', c: '#6fe3c8', r: 46, acid: true, summon: ['cubeling', 'cubeling', 'cubeling', 'cubeling'],
+        tip: 'It weeps acid wherever it goes. Keep moving',
+        moves: [['leap', 'acidspray', 'charge', 'fans'], ['leap', 'acidspray', 'summon', 'charge'], ['leap', 'acidspray', 'summon', 'leap']] },
+    ],
+  },
 ];
-const WORLD_COUNT = 3;
+const WORLD_COUNT = 4;
+const FLIERS = new Set(['stirge', 'wraith', 'sprite']); // float over pits, sludge and acid
 const levelLabel = (w, l) => `${w}-${l}`;
 
 // ===== Sanctum unlocks (permanent). A full run (~250 embers) buys about one. =====
@@ -707,6 +720,7 @@ const World = {
     const map = this.map = new Uint8Array(MW * MH);
     const rid = this.roomId = new Int16Array(MW * MH).fill(-1);
     this.thp = new Map(); // hit points of breakable rocks / stumps
+    this.traps = []; this.stalT = 4;
     const cells = new Map(), key = (x, y) => x + y * GRID;
     const rooms = this.rooms = [];
     const add = (cx, cy) => { const r = { id: rooms.length, cx, cy, links: [], type: 'combat', cleared: false, visited: false, known: false, doors: [] }; rooms.push(r); cells.set(key(cx, cy), r); return r; };
@@ -745,7 +759,7 @@ const World = {
     // corridors + doors (doors sit just outside each room's bounding rect)
     for (const a of rooms) for (const bid of a.links) {
       const b = rooms[bid]; if (b.id < a.id) continue;
-      const cr = RNG(hash(Game.seedNum, a.id, b.id, 17)), wiggle = style !== 'crypt';
+      const cr = RNG(hash(Game.seedNum, a.id, b.id, 17)), wiggle = style !== 'crypt' && style !== 'sewer';
       if (a.cy === b.cy) {
         const L = a.cx < b.cx ? a : b, Rr = L === a ? b : a, y0 = L.my, x0 = L.x + L.w, x1 = Rr.x - 1;
         this.corridor(x0, x1, y0, true, wiggle, cr);
@@ -772,6 +786,7 @@ const World = {
       const rr = RNG(hash(Game.seedNum, w * 10 + l, r.id, 7));
       if (r.type === 'combat' || r.type === 'boss' || r.type === 'exit') this.obstacles(r, rr, style);
       if (r.type === 'combat' || r.type === 'exit') this.planWaves(r, rr);
+      if (r.type === 'combat') this.placeTraps(r, RNG(hash(Game.seedNum, w * 10 + l, r.id, 77)), style, l);
       r.deco = [];
       for (let i = 0; i < r.w * r.h / 12; i++) r.deco.push({ x: r.x + rr.int(0, r.w - 1), y: r.y + rr.int(0, r.h - 1), k: rr.int(0, 3), a: rr() * TAU, s: rr.range(0.6, 1.2) });
     }
@@ -795,7 +810,7 @@ const World = {
     const map = this.map, w = r.w, h = r.h, cx = (w - 1) / 2, cy = (h - 1) / 2;
     const g = new Uint8Array(w * h); // 1 = floor
     const open = r.type === 'boss' || r.type === 'start' || r.type === 'armory' || r.type === 'exit';
-    if (style === 'crypt') {
+    if (style === 'crypt' || style === 'sewer') {
       const fillR = (x0, y0, x1, y1) => { for (let y = Math.max(1, y0); y <= Math.min(h - 2, y1); y++) for (let x = Math.max(1, x0); x <= Math.min(w - 2, x1); x++) g[y * w + x] = 1; };
       if (open) fillR(1, 1, w - 2, h - 2);
       else {
@@ -837,7 +852,7 @@ const World = {
       let off = 0;
       const len = dx ? (dx > 0 ? w - 1 - cx : cx) : (dy > 0 ? h - 1 - cy : cy);
       for (let s = 0; s <= len; s++) {
-        if (style !== 'crypt' && s > 1 && s < len - 1 && rng.chance(0.35)) off = clamp(off + rng.pick([-1, 1]), -1, 1);
+        if (style !== 'crypt' && style !== 'sewer' && s > 1 && s < len - 1 && rng.chance(0.35)) off = clamp(off + rng.pick([-1, 1]), -1, 1);
         if (s >= len - 1) off = 0;
         const px = dx ? cx + dx * s : cx + off, py = dy ? cy + dy * s : cy + off;
         for (let o = -1; o <= 1; o++) { const xx = dx ? px : px + o, yy = dx ? py + o : py; if (xx >= 0 && yy >= 0 && xx < w && yy < h) g[yy * w + xx] = 1; }
@@ -869,13 +884,131 @@ const World = {
     const brk = this.theme.breakable;
     const put = (x, y) => { if (ok(x, y)) { map[y * MW + x] = PILLAR; if (brk) this.thp.set(y * MW + x, 3); } };
     if (r.type === 'boss' || r.type === 'exit') { const dx = r.type === 'exit' ? 7 : 9, dy = r.type === 'exit' ? 4 : 6; for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); return; }
-    if (style === 'crypt') {
+    if (style === 'crypt' || style === 'sewer') {
       const hw = (r.w - 1) / 2, hh = (r.h - 1) / 2;
       for (let i = rng.int(2, 4); i > 0; i--) { const dx = rng.int(3, Math.max(3, hw - 2)), dy = rng.int(3, Math.max(3, hh - 2)); for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); }
     } else {
       const p = style === 'forest' ? 0.07 : 0.035;
       for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (rng.chance(p)) put(x, y);
     }
+  },
+  // ---------- environmental hazards ----------
+  // Placed per room, seeded. Sparse early in a world, more by x-3. Boss and start rooms stay clean.
+  placeTraps(r, rng, style, l) {
+    const ch = ({ crypt: [0.2, 0.35, 0.5], forest: [0.2, 0.35, 0.5], sewer: [0.5, 0.65, 0.8], cave: [0, 0, 0.2] }[style] || [0, 0, 0])[l - 1];
+    if (!rng.chance(ch)) return;
+    if (style === 'cave') { r.stal = true; return; } // falling stalactites, 1-3 only
+    const tr = this.traps, doorT = r.doors.map(i => [i % MW, Math.floor(i / MW)]);
+    const base = (x, y) => this.map[y * MW + x] === FLOOR && this.roomId[y * MW + x] === r.id && doorT.every(([dx, dy]) => Math.abs(dx - x) + Math.abs(dy - y) > 3) && (Math.abs(x - r.mx) > 1 || Math.abs(y - r.my) > 1);
+    const free = (px, py, rad) => !tr.some(t => d2(t.x, t.y, px, py) < (t.r + rad + 24) ** 2);
+    const tiles = []; for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (base(x, y)) tiles.push([x, y]);
+    if (tiles.length < 8) return;
+    const blobs = rad => Array.from({ length: 4 }, () => [rng.range(-0.35, 0.35) * rad, rng.range(-0.3, 0.3) * rad, rad * rng.range(0.55, 0.8)]);
+    const add = o => { o.room = r.id; tr.push(o); };
+    const pool = (kind, n, r0, r1) => { for (let i = 0; i < n; i++) for (let k = 0; k < 20; k++) { const [x, y] = rng.pick(tiles), rad = rng.range(r0, r1), px = x * T + T / 2, py = y * T + T / 2; if (free(px, py, rad)) { add({ kind, x: px, y: py, r: rad, b: blobs(rad), ph: rng() * 9 }); break; } } };
+    if (style === 'crypt') {
+      const spikes = rng.chance(0.7);
+      if (spikes) for (let k = 0; k < 20; k++) { // a run of spike plates that pop in a ripple
+        const [sx, sy] = rng.pick(tiles), horiz = rng.chance(0.5), n = rng.int(3, 6), ph = rng() * 2.8, run = [];
+        for (let i = 0; i < n; i++) { const x = horiz ? sx + i : sx, y = horiz ? sy : sy + i; if (base(x, y)) run.push([x, y]); }
+        if (run.length >= 3 && free(sx * T + T / 2, sy * T + T / 2, 16)) { run.forEach(([x, y], i) => add({ kind: 'spikes', x: x * T + T / 2, y: y * T + T / 2, r: 15, ph: ph + i * 0.22 })); break; }
+      }
+      if (!spikes || rng.chance(0.4)) pool('gas', rng.int(1, 2), 48, 48);
+    } else if (style === 'forest') {
+      const pits = rng.chance(0.75);
+      if (pits) for (let i = rng.int(1, 3); i > 0; i--) for (let k = 0; k < 20; k++) { // 2x2 covered pit
+        const [x, y] = rng.pick(tiles); if (!base(x + 1, y) || !base(x, y + 1) || !base(x + 1, y + 1)) continue;
+        const px = (x + 1) * T, py = (y + 1) * T; if (free(px, py, 28)) { add({ kind: 'pit', x: px, y: py, r: 28, hidden: true, ph: rng() * 9 }); break; }
+      }
+      if (!pits || rng.chance(0.5)) pool('bramble', rng.int(1, 2), 38, 56);
+    } else if (style === 'sewer') {
+      pool('acid', rng.int(2, 4), 30, 50);
+      if (rng.chance(0.7)) pool('sludge', rng.int(1, 3), 40, 60);
+    }
+  },
+  acidPool(x, y, r, life) {
+    if (this.solidAt(x, y)) return;
+    const temp = this.traps.filter(t => t.life !== undefined); if (temp.length > 40) temp[0].life = 0;
+    this.traps.push({ kind: 'acid', x, y, r, life, max: life, ph: R() * 9, b: Array.from({ length: 3 }, () => [R.range(-0.3, 0.3) * r, R.range(-0.25, 0.25) * r, r * R.range(0.55, 0.8)]) });
+  },
+  trapDmg(e, f) { return Math.max(8, e.maxHp * f); },
+  hurtByTrap(e, n) { this.damage(e, n, { x: e.x, y: e.y, depth: 1, burn: true, elem: 'none' }); },
+  pitFall(t, q, isP) { // drop in, take the hit, climb out at the rim
+    if (t.hidden) { t.hidden = false; this.burst(t.x, t.y, 26, '#6a8a4a', 180, 0.5); Snd.play('heavy'); }
+    let a = Math.atan2(q.y - t.y, q.x - t.x); if (q.x === t.x && q.y === t.y) a = R() * TAU;
+    const rim = k => ({ x: t.x + Math.cos(a + k) * (t.r + q.r + 6), y: t.y + Math.sin(a + k) * (t.r + q.r + 6) });
+    let s = rim(Math.PI); if (this.solidAt(s.x, s.y)) s = rim(0); if (this.solidAt(s.x, s.y)) s = this.freeSpot(s.x, s.y);
+    q.x = s.x; q.y = s.y;
+    this.burst(q.x, q.y, 10, '#8a7a5a', 120, 0.4);
+    if (isP) { q.roll = 0; q.pushX = q.pushY = 0; this.text(q.x, q.y - 24, 'Pitfall!', '#ffb057'); this.hurt(q, 1); Render.kick(5); }
+    else { q.kx = q.ky = 0; q.stun = Math.max(q.stun || 0, 0.6); this.hurtByTrap(q, this.trapDmg(q, 0.35)); }
+  },
+  updTraps(dt) {
+    const p = this.players[0], now = this.time;
+    let slow = 1, inAcid = false, inGas = false;
+    if (this.traps.some(t => t.life !== undefined)) this.traps = this.traps.filter(t => t.life === undefined || (t.life -= dt) > 0);
+    const foes = this.enemies.filter(e => !e.dead && !e.boss && e.spawnT <= 0 && !(e.bones > 0));
+    const on = (t, q, k = 0.85) => d2(t.x, t.y, q.x, q.y) < (t.r * k) ** 2;
+    const pOk = p && !p.dead;
+    for (const t of this.traps) {
+      if (t.kind === 'spikes') {
+        const c = (now + t.ph) % 2.8, st = c < 1.9 ? 0 : c < 2.35 ? 1 : 2;
+        if (st === 2 && t.st !== 2) t.hit = new Set();
+        t.st = st;
+        if (st === 2) {
+          if (pOk && !t.hit.has(p) && d2(t.x, t.y, p.x, p.y) < (t.r + p.r * 0.4) ** 2) { t.hit.add(p); this.hurt(p, 1); }
+          for (const e of foes) if (!FLIERS.has(e.type) && !t.hit.has(e) && d2(t.x, t.y, e.x, e.y) < (t.r + e.r * 0.4) ** 2) { t.hit.add(e); this.hurtByTrap(e, this.trapDmg(e, 0.25)); }
+        }
+      } else if (t.kind === 'gas') {
+        const c = (now + t.ph) % 5.5, st = c < 3 ? 0 : c < 3.8 ? 1 : 2;
+        if (st === 1 && t.st === 0 && pOk && d2(t.x, t.y, p.x, p.y) < 400 ** 2) Snd.play('fizzle');
+        t.st = st;
+        if (st === 2) {
+          if (pOk && on(t, p)) inGas = true;
+          for (const e of foes) if (on(t, e)) { e.gasT = (e.gasT || 0) + dt; if (e.gasT >= 1) { e.gasT = 0; this.hurtByTrap(e, this.trapDmg(e, 0.12)); } }
+        }
+      } else if (t.kind === 'pit') {
+        if (pOk && p.blinkInv <= 0 && on(t, p, 0.72)) this.pitFall(t, p, true);
+        for (const e of foes) if (!FLIERS.has(e.type) && on(t, e, 0.72)) this.pitFall(t, e, false);
+      } else if (t.kind === 'bramble' || t.kind === 'sludge') {
+        if (pOk && on(t, p)) slow = Math.min(slow, t.kind === 'sludge' ? 0.55 : 0.65);
+      } else if (t.kind === 'acid') {
+        if (pOk && on(t, p)) inAcid = true;
+        for (const e of foes) if (!FLIERS.has(e.type) && on(t, e)) { e.acidT = (e.acidT || 0) + dt; if (e.acidT >= 1) { e.acidT = 0; this.hurtByTrap(e, this.trapDmg(e, 0.12)); } }
+      }
+    }
+    if (pOk) {
+      p.trapSlow = slow;
+      // acid and gas: a moment to step out, then half a heart every second you stay
+      p.acidT = inAcid ? (p.acidT || 0) + dt : 0; if (p.acidT >= 0.8) { p.acidT = -0.2; this.text(p.x, p.y - 24, 'Acid!', '#a8ff4a'); this.hurt(p, 1); }
+      p.gasT = inGas ? (p.gasT || 0) + dt : 0; if (p.gasT >= 0.8) { p.gasT = -0.2; this.text(p.x, p.y - 24, 'Poison gas!', '#b6d86a'); this.hurt(p, 1); }
+    }
+    // stalactites: a shadow, then a rock
+    const rm = this.room;
+    if (this.locked && rm && rm.stal && pOk) {
+      this.stalT -= dt;
+      if (this.stalT <= 0) {
+        this.stalT = R.range(5.5, 9);
+        const a = R() * TAU, d = R.range(0, 90), x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
+        if (!this.solidAt(x, y)) this.warn(x, y, 26, 1.1, 1, 'rock', { onFire: w => { for (const e of this.enemies) if (!e.dead && !e.boss && e.spawnT <= 0 && d2(w.x, w.y, e.x, e.y) < (w.r + e.r * 0.5) ** 2) this.hurtByTrap(e, this.trapDmg(e, 0.3)); } });
+      }
+    }
+  },
+  // Foes try to step around hazards they can see, some more carefully than others
+  trapSteer(e, mx, my) {
+    const fly = FLIERS.has(e.type), care = e.care ?? (e.care = R.range(0.15, 0.85));
+    let ax = 0, ay = 0, sf = 1;
+    for (const t of this.traps) {
+      const dx = e.x - t.x, dy = e.y - t.y, dd = dx * dx + dy * dy, range = t.r + e.r + 30;
+      if (dd > range * range) continue;
+      const d = Math.sqrt(dd) || 1;
+      if (!fly && (t.kind === 'sludge' || t.kind === 'bramble') && d < t.r * 0.85) sf = Math.min(sf, 0.65);
+      const danger = (t.kind === 'spikes' && t.st >= 1) || (t.kind === 'gas' && t.st >= 1) || (!fly && ((t.kind === 'pit' && !t.hidden) || t.kind === 'acid'));
+      if (danger) { const w = (1 - d / range) * care; ax += dx / d * w; ay += dy / d * w; }
+    }
+    if (!ax && !ay && sf === 1) return [mx, my];
+    const m = Math.hypot(mx, my), nx = mx / m + ax * 1.8, ny = my / m + ay * 1.8, n = Math.hypot(nx, ny) || 1;
+    return [nx / n * m * sf, ny / n * m * sf];
   },
   planWaves(r, rng) {
     const pool = this.theme.pools[this.level - 1];
@@ -890,7 +1023,7 @@ const World = {
         const type = rng.pick(pool), c = EDEF[type].cost;
         if (c > b) { if (guard > 30) { wave.push({ type: pool[0], ...this.tilePos(rng.pick(free)) }); b--; } continue; }
         wave.push({ type, ...this.tilePos(rng.pick(free)) }); b -= c;
-        if (type === 'blight' || type === 'gnoll') wave.push({ type, ...this.tilePos(rng.pick(free)) }); // they come in packs
+        if (type === 'blight' || type === 'gnoll' || type === 'rat') wave.push({ type, ...this.tilePos(rng.pick(free)) }); // they come in packs
       }
       r.waves.push(wave);
     }
@@ -1120,7 +1253,7 @@ const World = {
         else { p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.trapT = 0; Snd.play('roll'); }
         for (const h of p.hooks.roll) h();
       }
-      const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.slimed ? 0.6 : 1);
+      const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.slimed ? 0.6 : 1) * (p.trapSlow || 1);
       const k = 1 - Math.exp(-18 * dt);
       p.vx = lerp(p.vx, inp.mx * sp, k); p.vy = lerp(p.vy, inp.my * sp, k);
       this.move(p, p.vx * dt, p.vy * dt);
@@ -1663,6 +1796,7 @@ const World = {
       }
       case 'boss': this.updBoss(e, p, dt, toP, dist, go); break;
     }
+    if ((mx || my) && !e.boss && this.traps.length) [mx, my] = this.trapSteer(e, mx, my);
     if (mx || my) this.move(e, mx * dt, my * dt);
     if (!p.isDecoy && !e.air && dist < e.r + p.r - 2 && p.inv <= 0 && p.roll <= 0.03 && p.blinkInv <= 0 && p.lunge <= 0) {
       if (e.D.engulf) {
@@ -1683,6 +1817,7 @@ const World = {
     e.spin = (e.spin || 0) + dt * (late ? 1.6 : 1.1);
     if (e.vuln > 0) e.vuln -= dt;
     if (B.crystals) this.lichCrystals(e, dt);
+    if (B.acid && !e.air) { e.acidT = (e.acidT || 0) - dt; if (e.acidT <= 0) { e.acidT = 0.45; this.acidPool(e.x + R.range(-12, 12), e.y + R.range(-12, 12), R.range(24, 34), 5); } } // weeps acid as it moves
     if (e.state === 'stunned') { e.st -= dt; if (e.st <= 0) { e.state = 0; e.cool = 0.4; } return; }
     if (e.state === 0) {
       go(toP, B.look === 'owlbear' ? 70 : B.id === 'knight' ? 55 : 40); e.cool -= dt;
@@ -1693,7 +1828,7 @@ const World = {
         if (B.look === 'owlbear' && dist < 110) opts = ['swipe'];
         if (!opts.length) opts = ['fans'];
         const pick = R.pick(opts); e.last = pick;
-        e.state = pick; e.st = { charge: 0.65, shieldwall: 0.7, fans: 1.6, volley: 2.0, horn: 1.0, leap: 0.45, stalk: 1.5, boulder: 1.4, flail: 3.0, teleport: 0.6, spiral: 2.6, skulls: 1.6, raise: 1.0, prison: 1.2, sweep: 2.4, slam: 0.75, swipe: 0.45, screech: 1.2, cubs: 0.8, roots: 2.0, seeds: 1.8, summon: 1.0, thornwall: 1.0, brambles: 1.6 }[pick];
+        e.state = pick; e.st = { charge: 0.65, shieldwall: 0.7, fans: 1.6, volley: 2.0, horn: 1.0, leap: 0.45, stalk: 1.5, boulder: 1.4, flail: 3.0, teleport: 0.6, spiral: 2.6, skulls: 1.6, raise: 1.0, prison: 1.2, sweep: 2.4, slam: 0.75, swipe: 0.45, screech: 1.2, cubs: 0.8, roots: 2.0, seeds: 1.8, summon: 1.0, thornwall: 1.0, brambles: 1.6, acidspray: 1.7 }[pick];
         e.sub = 0; e.n = 0; e.runs = 0;
       }
       return;
@@ -1812,6 +1947,14 @@ const World = {
       case 'thornwall':
         if (e.n === 0) { e.n = 1; this.thornWall(e, p); }
         break;
+      case 'acidspray': // lobs globs that land as acid pools
+        if (e.sub <= 0 && e.n < (late ? 5 : 3)) {
+          e.sub = 0.35; e.n++;
+          const a = R() * TAU, d = e.n === 1 ? 0 : R.range(40, 120);
+          this.warn(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 34, 0.9, 1, 'acid', { onFire: w => this.acidPool(w.x, w.y, 38, 8) });
+          Snd.play('eshot');
+        }
+        break;
       case 'brambles': // the floor turns to brambles except a couple of lanes
         if (e.n === 0) {
           e.n = 1; const r = this.room, lx = r.x + 2 + R.int(0, r.w - 6), ly = r.y + 2 + R.int(0, r.h - 6);
@@ -1869,7 +2012,7 @@ const World = {
   spawnBoss(r) {
     const rng = RNG(hash(Game.seedNum, this.world, 909)), B = rng.pick(this.theme.bosses);
     const hp = (640 + 150 * this.depth) * ((Game.diff && Game.diff.boss) || 1);
-    const D = { hp, r: 30, sp: 38, c: B.c, ai: 'boss', touch: 2, embers: 0 };
+    const D = { hp, r: B.r || 30, sp: 38, c: B.c, ai: 'boss', touch: 2, embers: 0 };
     const e = { type: 'boss', D, B, boss: true, look: B.look, x: r.mx * T + T / 2, y: (r.my - 2) * T + T / 2, r: D.r, hp, maxHp: hp, kx: 0, ky: 0, spawnT: 1.4, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: 0, state: 0, cool: 1.5, face: Math.PI / 2, dead: false, phase: 1, vuln: 0 };
     e.name = properName(rng, 2); e.title = B.title;
     this.boss = e; this.enemies.push(e);
@@ -1885,7 +2028,7 @@ const World = {
       if (w.follow && w.t < w.follow && p) { w.x = lerp(w.x, p.x, 1 - Math.exp(-6 * dt)); w.y = lerp(w.y, p.y, 1 - Math.exp(-6 * dt)); }
       if (!w.fired && w.t >= w.dur) {
         w.fired = true;
-        const col = { root: '#8dff7a', slam: '#d9c4a0', rain: '#ffd27a', claw: '#ff8060', boulder: '#8a7a6a' }[w.kind] || '#ff4d6d';
+        const col = { root: '#8dff7a', slam: '#d9c4a0', rain: '#ffd27a', claw: '#ff8060', boulder: '#8a7a6a', rock: '#9a8a7a', acid: '#a8ff4a' }[w.kind] || '#ff4d6d';
         this.burst(w.x, w.y, 18, col, w.r * 4, 0.4); Render.kick(w.kind === 'slam' || w.kind === 'boulder' ? 10 : 4);
         Snd.play(w.kind === 'slam' ? 'explode' : 'heavy');
         let hitAny = false;
@@ -1984,6 +2127,7 @@ const World = {
 
   // ---------- hazards (kobold traps) and spell zones ----------
   updHazards(dt) {
+    this.updTraps(dt);
     const p = this.players[0];
     for (const s of this.slime) s.life -= dt;
     if (this.slime.length && this.slime[0].life <= 0) this.slime = this.slime.filter(s => s.life > 0);
@@ -2312,7 +2456,7 @@ const Render = {
     const ty0 = Math.max(0, Math.floor((this.cam.y - this.H / 2 / z) / T) - 1), ty1 = Math.min(MH - 1, Math.ceil((this.cam.y + this.H / 2 / z) / T) + 1);
     const at = (x, y) => (x < 0 || y < 0 || x >= MW || y >= MH) ? VOID : map[y * MW + x];
     const walk = t => t === FLOOR || t === DOOR || t === PILLAR || t === SHUT;
-    const crypt = th.style === 'crypt';
+    const crypt = th.style === 'crypt' || th.style === 'sewer';
     for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++) {
       const t = map[y * MW + x]; if (t === VOID) continue;
       const px = x * T, py = y * T;
@@ -2371,6 +2515,9 @@ const Render = {
             c.fillStyle = '#ffd27a'; c.fillRect(cx - 1, cy - 8, 2, 3); c.globalCompositeOperation = 'source-over';
           } else if (d.k === 1) { c.strokeStyle = 'rgba(216,208,184,0.25)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(cx - 6, cy); c.lineTo(cx + 6, cy + 2); c.moveTo(cx - 2, cy - 4); c.lineTo(cx + 1, cy + 5); c.stroke(); }
           else { c.strokeStyle = hexA(tint, 0.1); c.lineWidth = 1.5; c.beginPath(); c.arc(cx, cy, 7, 0, TAU); c.stroke(); }
+        } else if (th.deco === 'drip') {
+          if (d.k === 0) { c.fillStyle = 'rgba(90,110,60,0.35)'; c.beginPath(); c.ellipse(cx, cy, 9 * d.s, 4 * d.s, 0, 0, TAU); c.fill(); const k = (tm * 0.7 + d.a) % 1; c.strokeStyle = hexA(tint, 0.3 * (1 - k)); c.lineWidth = 1; c.beginPath(); c.ellipse(cx, cy, 9 * d.s * k, 4 * d.s * k, 0, 0, TAU); c.stroke(); }
+          else if (d.k === 1) { c.strokeStyle = 'rgba(20,24,16,0.8)'; c.lineWidth = 2; c.strokeRect(cx - 7, cy - 7, 14, 14); c.beginPath(); for (let i = -1; i <= 1; i++) { c.moveTo(cx + i * 4, cy - 7); c.lineTo(cx + i * 4, cy + 7); } c.stroke(); }
         } else {
           if (d.k === 0) { c.fillStyle = ['#ff9ad5', '#ffe066', '#b0f0ff'][hash(d.x, d.y) % 3]; c.beginPath(); c.arc(cx, cy, 2.2, 0, TAU); c.fill(); c.globalCompositeOperation = 'lighter'; this.drawGlow(c.fillStyle, cx, cy, 8, 0.4); c.globalCompositeOperation = 'source-over'; }
           else { c.strokeStyle = 'rgba(120,200,110,0.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(cx - 3, cy + 3); c.lineTo(cx - 1, cy - 4); c.moveTo(cx, cy + 3); c.lineTo(cx + 1, cy - 5); c.moveTo(cx + 3, cy + 3); c.lineTo(cx + 4, cy - 3); c.stroke(); }
@@ -2394,6 +2541,12 @@ const Render = {
           c.fillStyle = '#3a4060'; roundRect(c, px + 5, py + 3, T - 10, T * 0.45, 2); c.fill();
           c.strokeStyle = hexA(tint, 0.55); c.lineWidth = 1.5; roundRect(c, px + 3, py + 1, T - 6, T - 2, 3); c.stroke();
           c.beginPath(); c.moveTo(cx, py + 8); c.lineTo(cx, py + 20); c.moveTo(cx - 5, py + 12); c.lineTo(cx + 5, py + 12); c.stroke();
+        } else if (th.pillar === 'barrel') {
+          c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(cx, cy + 10, 13, 5, 0, 0, TAU); c.fill();
+          c.fillStyle = '#4a3b26'; roundRect(c, cx - 11, cy - 12, 22, 22, 4); c.fill();
+          c.fillStyle = '#5c4a30'; c.beginPath(); c.ellipse(cx, cy - 12, 11, 4.5, 0, 0, TAU); c.fill();
+          c.strokeStyle = '#7a6a4a'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx - 11, cy - 5); c.lineTo(cx + 11, cy - 5); c.moveTo(cx - 11, cy + 4); c.lineTo(cx + 11, cy + 4); c.stroke();
+          c.fillStyle = hexA(tint, 0.5); c.beginPath(); c.ellipse(cx + 3, cy - 12, 4, 1.6, 0, 0, TAU); c.fill();
         } else if (th.pillar === 'stump') {
           c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(cx, cy + 9, 15, 6, 0, 0, TAU); c.fill();
           c.fillStyle = '#4a3220'; c.fillRect(cx - 12, cy - 4, 24, 13);
@@ -2419,7 +2572,65 @@ const Render = {
       }
     }
   },
+  // environmental hazards, drawn on the floor under everything else
+  traps() {
+    const c = this.c, tm = World.time, z = this.z, vx = this.cam.x, vy = this.cam.y, hw = this.W / 2 / z + 80, hh = this.H / 2 / z + 80;
+    const blobs = (t, s = 1) => { c.beginPath(); for (const [ox, oy, rr] of t.b) { c.moveTo(t.x + ox + rr * s, t.y + oy); c.arc(t.x + ox, t.y + oy, rr * s, 0, TAU); } };
+    for (const t of World.traps) {
+      if (Math.abs(t.x - vx) > hw || Math.abs(t.y - vy) > hh) continue;
+      const fade = t.life !== undefined ? clamp(t.life / Math.min(1.2, t.max), 0, 1) : 1;
+      if (t.kind === 'spikes') {
+        const x = t.x - 13, y = t.y - 13;
+        c.fillStyle = '#1b1d28'; roundRect(c, x, y, 26, 26, 3); c.fill();
+        c.strokeStyle = 'rgba(150,160,200,0.18)'; c.lineWidth = 1; roundRect(c, x + 0.5, y + 0.5, 25, 25, 3); c.stroke();
+        const up = t.st === 2 ? 1 : t.st === 1 ? 0.3 : 0;
+        for (const [ox, oy] of [[-6, -6], [6, -6], [-6, 6], [6, 6], [0, 0]]) {
+          const px = t.x + ox, py = t.y + oy;
+          if (!up) { c.fillStyle = 'rgba(0,0,0,0.6)'; c.beginPath(); c.arc(px, py, 1.8, 0, TAU); c.fill(); continue; }
+          c.fillStyle = t.st === 2 ? '#dfe4f2' : '#8a90a8';
+          c.beginPath(); c.moveTo(px - 3, py + 3); c.lineTo(px, py + 3 - 12 * up); c.lineTo(px + 3, py + 3); c.fill();
+        }
+        if (t.st === 2) { c.globalCompositeOperation = 'lighter'; this.drawGlow('#ff6070', t.x, t.y, 20, 0.25); c.globalCompositeOperation = 'source-over'; }
+      } else if (t.kind === 'gas') {
+        c.fillStyle = '#15180f'; c.beginPath(); c.arc(t.x, t.y, 11, 0, TAU); c.fill();
+        c.strokeStyle = t.st === 1 ? `rgba(180,230,110,${0.5 + 0.4 * Math.sin(tm * 18)})` : 'rgba(120,130,100,0.5)'; c.lineWidth = 2;
+        c.beginPath(); for (let i = -1; i <= 1; i++) { c.moveTo(t.x + i * 5, t.y - 8); c.lineTo(t.x + i * 5, t.y + 8); } c.stroke();
+        if (t.st === 1) { c.globalCompositeOperation = 'lighter'; this.drawGlow('#b6e86a', t.x, t.y, 22, 0.35); c.globalCompositeOperation = 'source-over'; }
+        if (t.st === 2) {
+          const k = clamp(((tm + t.ph) % 5.5 - 3.8) / 0.4, 0, 1), out = clamp((5.5 - (tm + t.ph) % 5.5) / 0.4, 0, 1);
+          for (let i = 0; i < 6; i++) { const a = i * 1.05 + tm * 0.6 + t.ph, d = t.r * 0.45; c.fillStyle = `rgba(150,190,90,${0.16 * Math.min(k, out)})`; c.beginPath(); c.arc(t.x + Math.cos(a) * d, t.y + Math.sin(a) * d * 0.8, t.r * 0.55 * k, 0, TAU); c.fill(); }
+        }
+      } else if (t.kind === 'pit') {
+        if (t.hidden) { // a subtle tell: leaves a shade off the floor, a couple of crossed sticks
+          c.fillStyle = 'rgba(60,92,52,0.22)';
+          for (let i = 0; i < 6; i++) { const a = i * 1.1 + t.ph, d = (i % 3) * 7; c.beginPath(); c.ellipse(t.x + Math.cos(a) * d, t.y + Math.sin(a) * d, 9, 5, a, 0, TAU); c.fill(); }
+          c.strokeStyle = 'rgba(130,100,60,0.28)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(t.x - 16, t.y - 9); c.lineTo(t.x + 14, t.y + 10); c.moveTo(t.x - 12, t.y + 12); c.lineTo(t.x + 16, t.y - 7); c.stroke();
+        } else {
+          c.fillStyle = '#040604'; c.beginPath(); c.ellipse(t.x, t.y, t.r, t.r * 0.82, 0, 0, TAU); c.fill();
+          c.strokeStyle = '#3a2c1c'; c.lineWidth = 3; c.stroke();
+          c.fillStyle = '#9a9a8a';
+          for (let i = 0; i < 7; i++) { const a = i * TAU / 7 + 0.3, d = t.r * (i % 2 ? 0.35 : 0.6), px = t.x + Math.cos(a) * d, py = t.y + Math.sin(a) * d * 0.8; c.beginPath(); c.moveTo(px - 3, py + 3); c.lineTo(px, py - 8); c.lineTo(px + 3, py + 3); c.fill(); }
+        }
+      } else if (t.kind === 'bramble') {
+        c.fillStyle = 'rgba(18,40,22,0.85)'; blobs(t); c.fill();
+        c.strokeStyle = 'rgba(95,140,60,0.7)'; c.lineWidth = 1.5; c.beginPath();
+        for (let i = 0; i < 14; i++) { const a = i * 2.39 + t.ph, d = t.r * 0.7 * ((i * 37 % 10) / 10), px = t.x + Math.cos(a) * d, py = t.y + Math.sin(a) * d; c.moveTo(px - 5, py + 2); c.lineTo(px + 5, py - 2); c.moveTo(px - 1, py - 5); c.lineTo(px + 2, py + 4); }
+        c.stroke();
+      } else if (t.kind === 'sludge') {
+        c.fillStyle = `rgba(92,66,34,${0.75 * fade})`; blobs(t); c.fill();
+        c.strokeStyle = `rgba(140,105,60,${0.35 * fade})`; c.lineWidth = 1.5;
+        for (let i = 0; i < 2; i++) { const k = ((tm * 0.4 + t.ph + i * 0.5) % 1); c.beginPath(); c.ellipse(t.x, t.y, t.r * 0.6 * k, t.r * 0.45 * k, 0, 0, TAU); c.stroke(); }
+      } else if (t.kind === 'acid') {
+        c.fillStyle = `rgba(120,220,40,${0.32 * fade})`; blobs(t); c.fill();
+        c.fillStyle = `rgba(170,255,80,${0.25 * fade})`; blobs(t, 0.6); c.fill();
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#a8ff4a', t.x, t.y, t.r * 1.1, 0.18 * fade);
+        for (let i = 0; i < 3; i++) { const k = (tm * 0.9 + t.ph + i * 0.33) % 1, a = t.ph * 3 + i * 2.1, d = t.r * 0.45; c.fillStyle = `rgba(200,255,120,${0.5 * (1 - k) * fade})`; c.beginPath(); c.arc(t.x + Math.cos(a) * d, t.y + Math.sin(a) * d * 0.7, 1.5 + k * 3, 0, TAU); c.fill(); }
+        c.globalCompositeOperation = 'source-over';
+      }
+    }
+  },
   hazards() {
+    this.traps();
     const c = this.c;
     const pl = World.players[0];
     if (pl && pl.salvT > 0 && pl.salvK && !pl.salvK.gone) { // salvage progress ring
@@ -2709,6 +2920,31 @@ const Render = {
         c.fillStyle = '#ff6040'; c.beginPath(); c.arc(0, -r, 2.2, 0, TAU); c.fill(); c.lineCap = 'butt';
         break;
       }
+      case 'rat': {
+        c.rotate(toP);
+        const sw = Math.sin(t * 22 + e.x) * 3;
+        c.strokeStyle = '#c8a0a0'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(-r, 0); c.quadraticCurveTo(-r * 2, sw, -r * 2.6, -sw); c.stroke();
+        c.fillStyle = col; c.beginPath(); c.ellipse(0, 0, r * 1.25, r * 0.85, 0, 0, TAU); c.fill();
+        c.beginPath(); c.moveTo(r * 0.8, -r * 0.5); c.lineTo(r * 1.9, 0); c.lineTo(r * 0.8, r * 0.5); c.fill();
+        c.fillStyle = '#d8b0b0'; c.beginPath(); c.arc(r * 0.5, -r * 0.7, 2.6, 0, TAU); c.arc(r * 0.5, r * 0.7, 2.6, 0, TAU); c.fill();
+        c.fillStyle = '#ff3030'; c.beginPath(); c.arc(r * 1.1, -r * 0.28, 1.4, 0, TAU); c.arc(r * 1.1, r * 0.28, 1.4, 0, TAU); c.fill();
+        break;
+      }
+      case 'otyugh': {
+        const wind = e.state === 1 ? Math.sin(t * 40) * 2 : 0; c.translate(wind, 0);
+        c.strokeStyle = col; c.lineWidth = 4; c.lineCap = 'round';
+        for (const s of [-1, 1]) { const sw = Math.sin(t * 4 + s) * 0.4; c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(Math.cos(toP + s * 1.3) * r * 1.6, Math.sin(toP + s * 1.3) * r * 1.6, Math.cos(toP + s * (0.6 + sw)) * r * 2.1, Math.sin(toP + s * (0.6 + sw)) * r * 2.1); c.stroke(); }
+        c.lineCap = 'butt';
+        c.fillStyle = e.state === 3 ? '#6a6440' : col; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
+        c.fillStyle = '#6a6436'; for (let i = 0; i < 4; i++) { c.beginPath(); c.arc(Math.cos(i * 1.7) * r * 0.5, Math.sin(i * 1.7) * r * 0.5, 2.5, 0, TAU); c.fill(); }
+        const mx = Math.cos(toP) * r * 0.45, my = Math.sin(toP) * r * 0.45;
+        c.fillStyle = '#2a1a10'; c.beginPath(); c.arc(mx, my, r * 0.35, 0, TAU); c.fill();
+        c.fillStyle = '#e8e0c0'; for (let i = 0; i < 5; i++) { const a = toP + (i - 2) * 0.5; c.beginPath(); c.arc(mx + Math.cos(a) * r * 0.3, my + Math.sin(a) * r * 0.3, 1.5, 0, TAU); c.fill(); }
+        c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(toP + Math.PI) * r * 1.3, Math.sin(toP + Math.PI) * r * 1.3 - 8); c.stroke();
+        c.fillStyle = '#f0f0d0'; c.beginPath(); c.arc(Math.cos(toP + Math.PI) * r * 1.3, Math.sin(toP + Math.PI) * r * 1.3 - 8, 3.5, 0, TAU); c.fill();
+        c.fillStyle = '#202010'; c.beginPath(); c.arc(Math.cos(toP + Math.PI) * r * 1.3 + Math.cos(toP) * 1.5, Math.sin(toP + Math.PI) * r * 1.3 - 8 + Math.sin(toP) * 1.5, 1.6, 0, TAU); c.fill();
+        break;
+      }
       case 'cub': case 'owlbear': {
         const wind = e.state === 1 ? Math.sin(t * 40) * 2 : 0;
         c.translate(wind, 0);
@@ -2885,7 +3121,12 @@ const Render = {
     for (const w of World.warns) {
       const k = clamp(w.t / w.dur, 0, 1);
       if (!w.fired) {
-        const col = w.kind === 'root' ? '#8dff7a' : w.kind === 'rain' ? '#ffd27a' : '#ff4d6d';
+        const col = w.kind === 'root' ? '#8dff7a' : w.kind === 'rain' ? '#ffd27a' : w.kind === 'acid' ? '#a8ff4a' : w.kind === 'rock' ? '#c8b8a0' : '#ff4d6d';
+        if (w.kind === 'rock') { // shadow grows, then the stalactite drops
+          c.fillStyle = `rgba(0,0,0,${0.2 + 0.4 * k})`; c.beginPath(); c.ellipse(w.x, w.y, w.r * (0.4 + 0.6 * k), w.r * 0.7 * (0.4 + 0.6 * k), 0, 0, TAU); c.fill();
+          if (k > 0.55) { const fy = w.y - (1 - k) / 0.45 * 180; c.fillStyle = '#5a4a62'; c.beginPath(); c.moveTo(w.x - 9, fy - 26); c.lineTo(w.x + 9, fy - 26); c.lineTo(w.x, fy); c.fill(); }
+          continue;
+        }
         c.fillStyle = hexA(col, 0.12 + 0.25 * k); c.beginPath(); c.arc(w.x, w.y, w.r * k, 0, TAU); c.fill();
         c.strokeStyle = hexA(col, 0.5 + 0.4 * Math.sin(World.time * 20)); c.lineWidth = 2; c.beginPath(); c.arc(w.x, w.y, w.r, 0, TAU); c.stroke();
         if (w.kind === 'slam') { c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(w.x, w.y, 30 * (0.4 + k * 0.6), 12 * (0.4 + k * 0.6), 0, 0, TAU); c.fill(); }
@@ -2902,7 +3143,7 @@ const Render = {
     const key = w + ':' + layer; if (this.bgCache[key]) return this.bgCache[key];
     const S = 512, cv = document.createElement('canvas'); cv.width = cv.height = S;
     const x = cv.getContext('2d'), rng = RNG(hash(w, layer, 31)), th = WORLDS[w];
-    if (layer === 0) { x.fillStyle = { cave: '#0b0910', crypt: '#090a12', forest: '#060d09' }[th.style]; x.fillRect(0, 0, S, S); }
+    if (layer === 0) { x.fillStyle = { cave: '#0b0910', crypt: '#090a12', forest: '#060d09', sewer: '#080a06' }[th.style]; x.fillRect(0, 0, S, S); }
     const blob = (cx, cy, r, col) => { for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) { x.fillStyle = col; x.beginPath(); x.arc(cx + ox, cy + oy, r, 0, TAU); x.fill(); } };
     if (th.style === 'cave') {
       if (layer === 0) { for (let i = 0; i < 40; i++) blob(rng() * S, rng() * S, rng.range(20, 70), rng.chance(0.5) ? '#110e17' : '#0e0b14'); for (let i = 0; i < 26; i++) { x.globalAlpha = rng.range(0.15, 0.4); blob(rng() * S, rng() * S, rng.range(1, 2.5), th.tint); } x.globalAlpha = 1; }
@@ -2910,6 +3151,9 @@ const Render = {
     } else if (th.style === 'crypt') {
       if (layer === 0) { x.strokeStyle = '#11131e'; x.lineWidth = 3; for (let i = 0; i < 4; i++) { const ax = i * S / 4 + 64; x.beginPath(); x.moveTo(ax - 48, S); x.lineTo(ax - 48, 200); x.arc(ax, 200, 48, Math.PI, 0); x.lineTo(ax + 48, S); x.stroke(); } for (let i = 0; i < 18; i++) { x.globalAlpha = rng.range(0.2, 0.5); blob(rng() * S, rng() * S, rng.range(1, 2), '#ffb057'); } x.globalAlpha = 1; }
       else { for (let i = 0; i < 3; i++) { const cx = i * S / 3 + rng.range(0, 80); x.fillStyle = 'rgba(20,22,34,0.95)'; x.fillRect(cx, 0, 30, S); x.fillStyle = 'rgba(28,31,48,0.95)'; x.fillRect(cx - 6, rng.range(0, S), 42, 14); } for (let i = 0; i < 10; i++) { x.globalAlpha = 0.05; blob(rng() * S, rng() * S, rng.range(40, 90), '#b58bff'); } x.globalAlpha = 1; }
+    } else if (th.style === 'sewer') {
+      if (layer === 0) { for (let i = 0; i < 5; i++) { const py = rng() * S, h = rng.range(16, 30); x.fillStyle = '#10140c'; x.fillRect(0, py, S, h); x.fillStyle = '#151a10'; x.fillRect(0, py + 3, S, 4); for (let j = 0; j < 4; j++) { x.fillStyle = '#0c0f09'; x.fillRect(rng() * S, py - 2, 8, h + 4); } } for (let i = 0; i < 24; i++) { x.globalAlpha = rng.range(0.1, 0.3); blob(rng() * S, rng() * S, rng.range(1, 2.5), th.tint); } x.globalAlpha = 1; }
+      else { for (let i = 0; i < 6; i++) { const px = rng() * S, w = rng.range(14, 26); x.fillStyle = 'rgba(14,18,10,0.95)'; x.fillRect(px, 0, w, S); x.fillStyle = 'rgba(26,32,18,0.95)'; for (let j = 0; j < 3; j++) x.fillRect(px - 4, rng() * S, w + 8, 8); } for (let i = 0; i < 16; i++) { x.globalAlpha = 0.35; blob(rng() * S, rng() * S, 2, '#7fae4a'); } x.globalAlpha = 1; }
     } else {
       if (layer === 0) { for (let i = 0; i < 14; i++) { const tx = rng() * S; x.fillStyle = '#0a140e'; x.fillRect(tx - 5, 0, 10, S); } for (let i = 0; i < 30; i++) blob(rng() * S, rng() * S, rng.range(30, 70), rng.chance(0.5) ? '#0b1710' : '#0d1a12'); }
       else { for (let i = 0; i < 6; i++) { const tx = rng() * S; x.fillStyle = 'rgba(8,18,11,0.95)'; x.fillRect(tx - 9, 0, 18, S); blob(tx, rng() * S, rng.range(40, 80), 'rgba(10,24,14,0.9)'); } for (let i = 0; i < 24; i++) { x.globalAlpha = rng.range(0.3, 0.7); blob(rng() * S, rng() * S, 1.6, '#d8ff7a'); } x.globalAlpha = 1; }
@@ -3635,7 +3879,7 @@ const SCRAP = [5, 15, 40, 100, 250]; // embers for scrapping a weapon, by rarity
 const xpNeed = lvl => Math.round(100 * Math.pow(lvl, 1.6));
 const xpNeedV1 = lvl => Math.round(80 * Math.pow(lvl, 1.35));
 // Each world has a level band. XP tapers near the top so easy worlds can't be farmed for levels.
-const XP_BANDS = [null, 3, 6, 10]; // top level of each world's band
+const XP_BANDS = [null, 3, 6, 10, 14]; // top level of each world's band
 function xpMult(lvl, world) { const top = XP_BANDS[world]; return lvl >= top ? 0.05 : lvl === top - 1 ? 0.5 : 1; }
 function migrateHero(h) { // heroes made on the old, faster curve get re-leveled from their total XP
   if (!h || h.xpv === 2) return;
@@ -3749,7 +3993,7 @@ const CampScreens = {
   hub(i) {
     Game.state = 'menu'; World.map = null;
     const h = Campaign.hero(i), C = CLASSES[h.cls], cp = h.corpse;
-    const worlds = [1, 2, 3].map(w => {
+    const worlds = Array.from({ length: WORLD_COUNT }, (_, i) => i + 1).map(w => {
       const open = w <= h.cleared + 1, here = cp && cp.world === w;
       const btns = !open ? '<small style="display:inline">Locked</small>' : here
         ? `<button class="btn" id="corpse-${w}">Return to remains</button><button class="btn" id="go-${w}">New dungeon</button>`

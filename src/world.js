@@ -17,6 +17,7 @@ const World = {
     const map = this.map = new Uint8Array(MW * MH);
     const rid = this.roomId = new Int16Array(MW * MH).fill(-1);
     this.thp = new Map(); // hit points of breakable rocks / stumps
+    this.traps = []; this.stalT = 4;
     const cells = new Map(), key = (x, y) => x + y * GRID;
     const rooms = this.rooms = [];
     const add = (cx, cy) => { const r = { id: rooms.length, cx, cy, links: [], type: 'combat', cleared: false, visited: false, known: false, doors: [] }; rooms.push(r); cells.set(key(cx, cy), r); return r; };
@@ -55,7 +56,7 @@ const World = {
     // corridors + doors (doors sit just outside each room's bounding rect)
     for (const a of rooms) for (const bid of a.links) {
       const b = rooms[bid]; if (b.id < a.id) continue;
-      const cr = RNG(hash(Game.seedNum, a.id, b.id, 17)), wiggle = style !== 'crypt';
+      const cr = RNG(hash(Game.seedNum, a.id, b.id, 17)), wiggle = style !== 'crypt' && style !== 'sewer';
       if (a.cy === b.cy) {
         const L = a.cx < b.cx ? a : b, Rr = L === a ? b : a, y0 = L.my, x0 = L.x + L.w, x1 = Rr.x - 1;
         this.corridor(x0, x1, y0, true, wiggle, cr);
@@ -82,6 +83,7 @@ const World = {
       const rr = RNG(hash(Game.seedNum, w * 10 + l, r.id, 7));
       if (r.type === 'combat' || r.type === 'boss' || r.type === 'exit') this.obstacles(r, rr, style);
       if (r.type === 'combat' || r.type === 'exit') this.planWaves(r, rr);
+      if (r.type === 'combat') this.placeTraps(r, RNG(hash(Game.seedNum, w * 10 + l, r.id, 77)), style, l);
       r.deco = [];
       for (let i = 0; i < r.w * r.h / 12; i++) r.deco.push({ x: r.x + rr.int(0, r.w - 1), y: r.y + rr.int(0, r.h - 1), k: rr.int(0, 3), a: rr() * TAU, s: rr.range(0.6, 1.2) });
     }
@@ -105,7 +107,7 @@ const World = {
     const map = this.map, w = r.w, h = r.h, cx = (w - 1) / 2, cy = (h - 1) / 2;
     const g = new Uint8Array(w * h); // 1 = floor
     const open = r.type === 'boss' || r.type === 'start' || r.type === 'armory' || r.type === 'exit';
-    if (style === 'crypt') {
+    if (style === 'crypt' || style === 'sewer') {
       const fillR = (x0, y0, x1, y1) => { for (let y = Math.max(1, y0); y <= Math.min(h - 2, y1); y++) for (let x = Math.max(1, x0); x <= Math.min(w - 2, x1); x++) g[y * w + x] = 1; };
       if (open) fillR(1, 1, w - 2, h - 2);
       else {
@@ -147,7 +149,7 @@ const World = {
       let off = 0;
       const len = dx ? (dx > 0 ? w - 1 - cx : cx) : (dy > 0 ? h - 1 - cy : cy);
       for (let s = 0; s <= len; s++) {
-        if (style !== 'crypt' && s > 1 && s < len - 1 && rng.chance(0.35)) off = clamp(off + rng.pick([-1, 1]), -1, 1);
+        if (style !== 'crypt' && style !== 'sewer' && s > 1 && s < len - 1 && rng.chance(0.35)) off = clamp(off + rng.pick([-1, 1]), -1, 1);
         if (s >= len - 1) off = 0;
         const px = dx ? cx + dx * s : cx + off, py = dy ? cy + dy * s : cy + off;
         for (let o = -1; o <= 1; o++) { const xx = dx ? px : px + o, yy = dx ? py + o : py; if (xx >= 0 && yy >= 0 && xx < w && yy < h) g[yy * w + xx] = 1; }
@@ -179,13 +181,131 @@ const World = {
     const brk = this.theme.breakable;
     const put = (x, y) => { if (ok(x, y)) { map[y * MW + x] = PILLAR; if (brk) this.thp.set(y * MW + x, 3); } };
     if (r.type === 'boss' || r.type === 'exit') { const dx = r.type === 'exit' ? 7 : 9, dy = r.type === 'exit' ? 4 : 6; for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); return; }
-    if (style === 'crypt') {
+    if (style === 'crypt' || style === 'sewer') {
       const hw = (r.w - 1) / 2, hh = (r.h - 1) / 2;
       for (let i = rng.int(2, 4); i > 0; i--) { const dx = rng.int(3, Math.max(3, hw - 2)), dy = rng.int(3, Math.max(3, hh - 2)); for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) put(r.mx + dx * sx, r.my + dy * sy); }
     } else {
       const p = style === 'forest' ? 0.07 : 0.035;
       for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (rng.chance(p)) put(x, y);
     }
+  },
+  // ---------- environmental hazards ----------
+  // Placed per room, seeded. Sparse early in a world, more by x-3. Boss and start rooms stay clean.
+  placeTraps(r, rng, style, l) {
+    const ch = ({ crypt: [0.2, 0.35, 0.5], forest: [0.2, 0.35, 0.5], sewer: [0.5, 0.65, 0.8], cave: [0, 0, 0.2] }[style] || [0, 0, 0])[l - 1];
+    if (!rng.chance(ch)) return;
+    if (style === 'cave') { r.stal = true; return; } // falling stalactites, 1-3 only
+    const tr = this.traps, doorT = r.doors.map(i => [i % MW, Math.floor(i / MW)]);
+    const base = (x, y) => this.map[y * MW + x] === FLOOR && this.roomId[y * MW + x] === r.id && doorT.every(([dx, dy]) => Math.abs(dx - x) + Math.abs(dy - y) > 3) && (Math.abs(x - r.mx) > 1 || Math.abs(y - r.my) > 1);
+    const free = (px, py, rad) => !tr.some(t => d2(t.x, t.y, px, py) < (t.r + rad + 24) ** 2);
+    const tiles = []; for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (base(x, y)) tiles.push([x, y]);
+    if (tiles.length < 8) return;
+    const blobs = rad => Array.from({ length: 4 }, () => [rng.range(-0.35, 0.35) * rad, rng.range(-0.3, 0.3) * rad, rad * rng.range(0.55, 0.8)]);
+    const add = o => { o.room = r.id; tr.push(o); };
+    const pool = (kind, n, r0, r1) => { for (let i = 0; i < n; i++) for (let k = 0; k < 20; k++) { const [x, y] = rng.pick(tiles), rad = rng.range(r0, r1), px = x * T + T / 2, py = y * T + T / 2; if (free(px, py, rad)) { add({ kind, x: px, y: py, r: rad, b: blobs(rad), ph: rng() * 9 }); break; } } };
+    if (style === 'crypt') {
+      const spikes = rng.chance(0.7);
+      if (spikes) for (let k = 0; k < 20; k++) { // a run of spike plates that pop in a ripple
+        const [sx, sy] = rng.pick(tiles), horiz = rng.chance(0.5), n = rng.int(3, 6), ph = rng() * 2.8, run = [];
+        for (let i = 0; i < n; i++) { const x = horiz ? sx + i : sx, y = horiz ? sy : sy + i; if (base(x, y)) run.push([x, y]); }
+        if (run.length >= 3 && free(sx * T + T / 2, sy * T + T / 2, 16)) { run.forEach(([x, y], i) => add({ kind: 'spikes', x: x * T + T / 2, y: y * T + T / 2, r: 15, ph: ph + i * 0.22 })); break; }
+      }
+      if (!spikes || rng.chance(0.4)) pool('gas', rng.int(1, 2), 48, 48);
+    } else if (style === 'forest') {
+      const pits = rng.chance(0.75);
+      if (pits) for (let i = rng.int(1, 3); i > 0; i--) for (let k = 0; k < 20; k++) { // 2x2 covered pit
+        const [x, y] = rng.pick(tiles); if (!base(x + 1, y) || !base(x, y + 1) || !base(x + 1, y + 1)) continue;
+        const px = (x + 1) * T, py = (y + 1) * T; if (free(px, py, 28)) { add({ kind: 'pit', x: px, y: py, r: 28, hidden: true, ph: rng() * 9 }); break; }
+      }
+      if (!pits || rng.chance(0.5)) pool('bramble', rng.int(1, 2), 38, 56);
+    } else if (style === 'sewer') {
+      pool('acid', rng.int(2, 4), 30, 50);
+      if (rng.chance(0.7)) pool('sludge', rng.int(1, 3), 40, 60);
+    }
+  },
+  acidPool(x, y, r, life) {
+    if (this.solidAt(x, y)) return;
+    const temp = this.traps.filter(t => t.life !== undefined); if (temp.length > 40) temp[0].life = 0;
+    this.traps.push({ kind: 'acid', x, y, r, life, max: life, ph: R() * 9, b: Array.from({ length: 3 }, () => [R.range(-0.3, 0.3) * r, R.range(-0.25, 0.25) * r, r * R.range(0.55, 0.8)]) });
+  },
+  trapDmg(e, f) { return Math.max(8, e.maxHp * f); },
+  hurtByTrap(e, n) { this.damage(e, n, { x: e.x, y: e.y, depth: 1, burn: true, elem: 'none' }); },
+  pitFall(t, q, isP) { // drop in, take the hit, climb out at the rim
+    if (t.hidden) { t.hidden = false; this.burst(t.x, t.y, 26, '#6a8a4a', 180, 0.5); Snd.play('heavy'); }
+    let a = Math.atan2(q.y - t.y, q.x - t.x); if (q.x === t.x && q.y === t.y) a = R() * TAU;
+    const rim = k => ({ x: t.x + Math.cos(a + k) * (t.r + q.r + 6), y: t.y + Math.sin(a + k) * (t.r + q.r + 6) });
+    let s = rim(Math.PI); if (this.solidAt(s.x, s.y)) s = rim(0); if (this.solidAt(s.x, s.y)) s = this.freeSpot(s.x, s.y);
+    q.x = s.x; q.y = s.y;
+    this.burst(q.x, q.y, 10, '#8a7a5a', 120, 0.4);
+    if (isP) { q.roll = 0; q.pushX = q.pushY = 0; this.text(q.x, q.y - 24, 'Pitfall!', '#ffb057'); this.hurt(q, 1); Render.kick(5); }
+    else { q.kx = q.ky = 0; q.stun = Math.max(q.stun || 0, 0.6); this.hurtByTrap(q, this.trapDmg(q, 0.35)); }
+  },
+  updTraps(dt) {
+    const p = this.players[0], now = this.time;
+    let slow = 1, inAcid = false, inGas = false;
+    if (this.traps.some(t => t.life !== undefined)) this.traps = this.traps.filter(t => t.life === undefined || (t.life -= dt) > 0);
+    const foes = this.enemies.filter(e => !e.dead && !e.boss && e.spawnT <= 0 && !(e.bones > 0));
+    const on = (t, q, k = 0.85) => d2(t.x, t.y, q.x, q.y) < (t.r * k) ** 2;
+    const pOk = p && !p.dead;
+    for (const t of this.traps) {
+      if (t.kind === 'spikes') {
+        const c = (now + t.ph) % 2.8, st = c < 1.9 ? 0 : c < 2.35 ? 1 : 2;
+        if (st === 2 && t.st !== 2) t.hit = new Set();
+        t.st = st;
+        if (st === 2) {
+          if (pOk && !t.hit.has(p) && d2(t.x, t.y, p.x, p.y) < (t.r + p.r * 0.4) ** 2) { t.hit.add(p); this.hurt(p, 1); }
+          for (const e of foes) if (!FLIERS.has(e.type) && !t.hit.has(e) && d2(t.x, t.y, e.x, e.y) < (t.r + e.r * 0.4) ** 2) { t.hit.add(e); this.hurtByTrap(e, this.trapDmg(e, 0.25)); }
+        }
+      } else if (t.kind === 'gas') {
+        const c = (now + t.ph) % 5.5, st = c < 3 ? 0 : c < 3.8 ? 1 : 2;
+        if (st === 1 && t.st === 0 && pOk && d2(t.x, t.y, p.x, p.y) < 400 ** 2) Snd.play('fizzle');
+        t.st = st;
+        if (st === 2) {
+          if (pOk && on(t, p)) inGas = true;
+          for (const e of foes) if (on(t, e)) { e.gasT = (e.gasT || 0) + dt; if (e.gasT >= 1) { e.gasT = 0; this.hurtByTrap(e, this.trapDmg(e, 0.12)); } }
+        }
+      } else if (t.kind === 'pit') {
+        if (pOk && p.blinkInv <= 0 && on(t, p, 0.72)) this.pitFall(t, p, true);
+        for (const e of foes) if (!FLIERS.has(e.type) && on(t, e, 0.72)) this.pitFall(t, e, false);
+      } else if (t.kind === 'bramble' || t.kind === 'sludge') {
+        if (pOk && on(t, p)) slow = Math.min(slow, t.kind === 'sludge' ? 0.55 : 0.65);
+      } else if (t.kind === 'acid') {
+        if (pOk && on(t, p)) inAcid = true;
+        for (const e of foes) if (!FLIERS.has(e.type) && on(t, e)) { e.acidT = (e.acidT || 0) + dt; if (e.acidT >= 1) { e.acidT = 0; this.hurtByTrap(e, this.trapDmg(e, 0.12)); } }
+      }
+    }
+    if (pOk) {
+      p.trapSlow = slow;
+      // acid and gas: a moment to step out, then half a heart every second you stay
+      p.acidT = inAcid ? (p.acidT || 0) + dt : 0; if (p.acidT >= 0.8) { p.acidT = -0.2; this.text(p.x, p.y - 24, 'Acid!', '#a8ff4a'); this.hurt(p, 1); }
+      p.gasT = inGas ? (p.gasT || 0) + dt : 0; if (p.gasT >= 0.8) { p.gasT = -0.2; this.text(p.x, p.y - 24, 'Poison gas!', '#b6d86a'); this.hurt(p, 1); }
+    }
+    // stalactites: a shadow, then a rock
+    const rm = this.room;
+    if (this.locked && rm && rm.stal && pOk) {
+      this.stalT -= dt;
+      if (this.stalT <= 0) {
+        this.stalT = R.range(5.5, 9);
+        const a = R() * TAU, d = R.range(0, 90), x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
+        if (!this.solidAt(x, y)) this.warn(x, y, 26, 1.1, 1, 'rock', { onFire: w => { for (const e of this.enemies) if (!e.dead && !e.boss && e.spawnT <= 0 && d2(w.x, w.y, e.x, e.y) < (w.r + e.r * 0.5) ** 2) this.hurtByTrap(e, this.trapDmg(e, 0.3)); } });
+      }
+    }
+  },
+  // Foes try to step around hazards they can see, some more carefully than others
+  trapSteer(e, mx, my) {
+    const fly = FLIERS.has(e.type), care = e.care ?? (e.care = R.range(0.15, 0.85));
+    let ax = 0, ay = 0, sf = 1;
+    for (const t of this.traps) {
+      const dx = e.x - t.x, dy = e.y - t.y, dd = dx * dx + dy * dy, range = t.r + e.r + 30;
+      if (dd > range * range) continue;
+      const d = Math.sqrt(dd) || 1;
+      if (!fly && (t.kind === 'sludge' || t.kind === 'bramble') && d < t.r * 0.85) sf = Math.min(sf, 0.65);
+      const danger = (t.kind === 'spikes' && t.st >= 1) || (t.kind === 'gas' && t.st >= 1) || (!fly && ((t.kind === 'pit' && !t.hidden) || t.kind === 'acid'));
+      if (danger) { const w = (1 - d / range) * care; ax += dx / d * w; ay += dy / d * w; }
+    }
+    if (!ax && !ay && sf === 1) return [mx, my];
+    const m = Math.hypot(mx, my), nx = mx / m + ax * 1.8, ny = my / m + ay * 1.8, n = Math.hypot(nx, ny) || 1;
+    return [nx / n * m * sf, ny / n * m * sf];
   },
   planWaves(r, rng) {
     const pool = this.theme.pools[this.level - 1];
@@ -200,7 +320,7 @@ const World = {
         const type = rng.pick(pool), c = EDEF[type].cost;
         if (c > b) { if (guard > 30) { wave.push({ type: pool[0], ...this.tilePos(rng.pick(free)) }); b--; } continue; }
         wave.push({ type, ...this.tilePos(rng.pick(free)) }); b -= c;
-        if (type === 'blight' || type === 'gnoll') wave.push({ type, ...this.tilePos(rng.pick(free)) }); // they come in packs
+        if (type === 'blight' || type === 'gnoll' || type === 'rat') wave.push({ type, ...this.tilePos(rng.pick(free)) }); // they come in packs
       }
       r.waves.push(wave);
     }
@@ -430,7 +550,7 @@ const World = {
         else { p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.trapT = 0; Snd.play('roll'); }
         for (const h of p.hooks.roll) h();
       }
-      const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.slimed ? 0.6 : 1);
+      const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.slimed ? 0.6 : 1) * (p.trapSlow || 1);
       const k = 1 - Math.exp(-18 * dt);
       p.vx = lerp(p.vx, inp.mx * sp, k); p.vy = lerp(p.vy, inp.my * sp, k);
       this.move(p, p.vx * dt, p.vy * dt);
@@ -973,6 +1093,7 @@ const World = {
       }
       case 'boss': this.updBoss(e, p, dt, toP, dist, go); break;
     }
+    if ((mx || my) && !e.boss && this.traps.length) [mx, my] = this.trapSteer(e, mx, my);
     if (mx || my) this.move(e, mx * dt, my * dt);
     if (!p.isDecoy && !e.air && dist < e.r + p.r - 2 && p.inv <= 0 && p.roll <= 0.03 && p.blinkInv <= 0 && p.lunge <= 0) {
       if (e.D.engulf) {
@@ -993,6 +1114,7 @@ const World = {
     e.spin = (e.spin || 0) + dt * (late ? 1.6 : 1.1);
     if (e.vuln > 0) e.vuln -= dt;
     if (B.crystals) this.lichCrystals(e, dt);
+    if (B.acid && !e.air) { e.acidT = (e.acidT || 0) - dt; if (e.acidT <= 0) { e.acidT = 0.45; this.acidPool(e.x + R.range(-12, 12), e.y + R.range(-12, 12), R.range(24, 34), 5); } } // weeps acid as it moves
     if (e.state === 'stunned') { e.st -= dt; if (e.st <= 0) { e.state = 0; e.cool = 0.4; } return; }
     if (e.state === 0) {
       go(toP, B.look === 'owlbear' ? 70 : B.id === 'knight' ? 55 : 40); e.cool -= dt;
@@ -1003,7 +1125,7 @@ const World = {
         if (B.look === 'owlbear' && dist < 110) opts = ['swipe'];
         if (!opts.length) opts = ['fans'];
         const pick = R.pick(opts); e.last = pick;
-        e.state = pick; e.st = { charge: 0.65, shieldwall: 0.7, fans: 1.6, volley: 2.0, horn: 1.0, leap: 0.45, stalk: 1.5, boulder: 1.4, flail: 3.0, teleport: 0.6, spiral: 2.6, skulls: 1.6, raise: 1.0, prison: 1.2, sweep: 2.4, slam: 0.75, swipe: 0.45, screech: 1.2, cubs: 0.8, roots: 2.0, seeds: 1.8, summon: 1.0, thornwall: 1.0, brambles: 1.6 }[pick];
+        e.state = pick; e.st = { charge: 0.65, shieldwall: 0.7, fans: 1.6, volley: 2.0, horn: 1.0, leap: 0.45, stalk: 1.5, boulder: 1.4, flail: 3.0, teleport: 0.6, spiral: 2.6, skulls: 1.6, raise: 1.0, prison: 1.2, sweep: 2.4, slam: 0.75, swipe: 0.45, screech: 1.2, cubs: 0.8, roots: 2.0, seeds: 1.8, summon: 1.0, thornwall: 1.0, brambles: 1.6, acidspray: 1.7 }[pick];
         e.sub = 0; e.n = 0; e.runs = 0;
       }
       return;
@@ -1122,6 +1244,14 @@ const World = {
       case 'thornwall':
         if (e.n === 0) { e.n = 1; this.thornWall(e, p); }
         break;
+      case 'acidspray': // lobs globs that land as acid pools
+        if (e.sub <= 0 && e.n < (late ? 5 : 3)) {
+          e.sub = 0.35; e.n++;
+          const a = R() * TAU, d = e.n === 1 ? 0 : R.range(40, 120);
+          this.warn(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 34, 0.9, 1, 'acid', { onFire: w => this.acidPool(w.x, w.y, 38, 8) });
+          Snd.play('eshot');
+        }
+        break;
       case 'brambles': // the floor turns to brambles except a couple of lanes
         if (e.n === 0) {
           e.n = 1; const r = this.room, lx = r.x + 2 + R.int(0, r.w - 6), ly = r.y + 2 + R.int(0, r.h - 6);
@@ -1179,7 +1309,7 @@ const World = {
   spawnBoss(r) {
     const rng = RNG(hash(Game.seedNum, this.world, 909)), B = rng.pick(this.theme.bosses);
     const hp = (640 + 150 * this.depth) * ((Game.diff && Game.diff.boss) || 1);
-    const D = { hp, r: 30, sp: 38, c: B.c, ai: 'boss', touch: 2, embers: 0 };
+    const D = { hp, r: B.r || 30, sp: 38, c: B.c, ai: 'boss', touch: 2, embers: 0 };
     const e = { type: 'boss', D, B, boss: true, look: B.look, x: r.mx * T + T / 2, y: (r.my - 2) * T + T / 2, r: D.r, hp, maxHp: hp, kx: 0, ky: 0, spawnT: 1.4, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: 0, state: 0, cool: 1.5, face: Math.PI / 2, dead: false, phase: 1, vuln: 0 };
     e.name = properName(rng, 2); e.title = B.title;
     this.boss = e; this.enemies.push(e);
@@ -1195,7 +1325,7 @@ const World = {
       if (w.follow && w.t < w.follow && p) { w.x = lerp(w.x, p.x, 1 - Math.exp(-6 * dt)); w.y = lerp(w.y, p.y, 1 - Math.exp(-6 * dt)); }
       if (!w.fired && w.t >= w.dur) {
         w.fired = true;
-        const col = { root: '#8dff7a', slam: '#d9c4a0', rain: '#ffd27a', claw: '#ff8060', boulder: '#8a7a6a' }[w.kind] || '#ff4d6d';
+        const col = { root: '#8dff7a', slam: '#d9c4a0', rain: '#ffd27a', claw: '#ff8060', boulder: '#8a7a6a', rock: '#9a8a7a', acid: '#a8ff4a' }[w.kind] || '#ff4d6d';
         this.burst(w.x, w.y, 18, col, w.r * 4, 0.4); Render.kick(w.kind === 'slam' || w.kind === 'boulder' ? 10 : 4);
         Snd.play(w.kind === 'slam' ? 'explode' : 'heavy');
         let hitAny = false;
@@ -1294,6 +1424,7 @@ const World = {
 
   // ---------- hazards (kobold traps) and spell zones ----------
   updHazards(dt) {
+    this.updTraps(dt);
     const p = this.players[0];
     for (const s of this.slime) s.life -= dt;
     if (this.slime.length && this.slime[0].life <= 0) this.slime = this.slime.filter(s => s.life > 0);
