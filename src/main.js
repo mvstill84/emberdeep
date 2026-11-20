@@ -53,7 +53,8 @@ const HUD = {
     if (b && b.spawnT <= 0) {
       const bw = Math.min(520, W * 0.6), x = (W - bw) / 2, y = H - pad - 30;
       c.fillStyle = 'rgba(10,6,20,0.8)'; roundRect(c, x - 4, y - 4, bw + 8, 18, 6); c.fill();
-      c.fillStyle = b.raged ? '#ff3a5a' : b.D.c; c.fillRect(x, y, bw * clamp(b.hp / b.maxHp, 0, 1), 10);
+      c.fillStyle = b.invuln ? '#7dff7a' : b.vuln > 0 ? '#ffe066' : b.D.c; c.fillRect(x, y, bw * clamp(b.hp / b.maxHp, 0, 1), 10);
+      if (b.B && !b.twin && b.type === 'boss') for (const th of World.phaseThresholds()) { if ((b.phase || 1) >= 3) break; c.fillStyle = '#12061f'; c.fillRect(x + bw * th - 1.5, y - 2, 3, 14); }
       c.textAlign = 'center'; c.fillStyle = '#ffe2b0'; c.font = font(14, 800); c.fillText(b.name + ', ' + b.title, W / 2, y - 10);
     }
     // nearby pickup card

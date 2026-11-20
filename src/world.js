@@ -6,7 +6,7 @@ const solidT = t => t === VOID || t === WALL || t === PILLAR || t === SHUT;
 
 const World = {
   world: 1, level: 1, depth: 1, theme: null, map: null, roomId: null, rooms: [], room: null, locked: false, waves: [], waveT: 0,
-  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], ptraps: [], lastHit: null, timeStopT: 0, decoy: null, gnome: null,
+  players: [], enemies: [], projs: [], parts: [], pickups: [], bolts: [], texts: [], hazards: [], zones: [], warns: [], ptraps: [], lastHit: null, timeStopT: 0, decoy: null, gnome: null, bossDark: false, thorns: new Map(), rally: false,
   flow: null, flowKey: -1, flowT: 0, boss: null, time: 0,
 
   // ---------- generation ----------
@@ -210,7 +210,7 @@ const World = {
   // ---------- run setup ----------
   startLevel(w, l, keepPlayers) {
     this.gen(w, l);
-    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
+    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; this.bossDark = false; this.thorns = new Map(); for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     this.placeKeyAndChest();
@@ -363,6 +363,7 @@ const World = {
       if (dd < rr * rr && dd > 0.01) { const d = Math.sqrt(dd), push = (rr - d) / 2, nx = dx / d, ny = dy / d; const wa = a.boss ? 0 : 1, wb = b.boss ? 0 : 1; a.x -= nx * push * wa; a.y -= ny * push * wa; b.x += nx * push * wb; b.y += ny * push * wb; }
     }
     this.enemies = this.enemies.filter(e => !e.dead);
+    this.rally = this.enemies.some(e => e.type === 'banner');
     this.updProjs(dt);
     this.updHazards(dt);
     this.updWarns(dt);
@@ -407,6 +408,7 @@ const World = {
       if (p.lunge <= 0) this.swing(p, p.lungeW, false, true);
       return;
     }
+    if (p.pushX || p.pushY) { this.move(p, p.pushX * dt, p.pushY * dt); const k = Math.exp(-7 * dt); p.pushX *= k; p.pushY *= k; if (Math.abs(p.pushX) + Math.abs(p.pushY) < 5) p.pushX = p.pushY = 0; }
     if (p.roll > 0) {
       if (inp.attack && melee) p.lungeQ = true; // attack any time during the roll to lunge out of it
       p.roll -= dt;
@@ -667,6 +669,13 @@ const World = {
       else { this.burst(e.x, e.y, 3, '#e8e2cf', 80, 0.2); Snd.play('deflect'); }
       return;
     }
+    if (e.invuln) { this.burst(e.x, e.y, 4, '#b6ff7a', 100, 0.25); Snd.play('deflect'); if (!e.immT || e.immT < World.time) { e.immT = World.time + 1; this.text(e.x, e.y - e.r - 8, 'Immune', '#b6ff7a'); } return; }
+    if (e.B && e.B.shield && !(e.vuln > 0) && !src.aoe) { // bone knight's shield blocks the front
+      const from = src.proj ? Math.atan2(-src.proj.vy, -src.proj.vx) : Math.atan2(src.y - e.y, src.x - e.x);
+      if (Math.abs(angDiff(e.face, from)) < 1.15) { dmg *= 0.1; this.burst(e.x + Math.cos(e.face) * e.r, e.y + Math.sin(e.face) * e.r, 6, '#d6e0ff', 150, 0.25); Snd.play('deflect'); }
+    }
+    if (e.boss && e.vuln > 0) dmg *= e.B.heart ? (src.elem === 'fire' || src.extraElem === 'fire' ? 3 : 2) : 1.5;
+    if (this.rally && !e.boss && e.type !== 'banner') dmg *= 0.7;
     if (e.D.ai === 'charger' && e.state === 0 && e.D.hp > 100 && !src.aoe) {
       const from = src.proj ? Math.atan2(-src.proj.vy, -src.proj.vx) : Math.atan2(src.y - e.y, src.x - e.x);
       if (Math.abs(angDiff(e.face, from)) < 0.9) dmg *= 0.7; // owlbears tank frontal hits a bit
@@ -679,7 +688,7 @@ const World = {
     if (src.proj) { const l = Math.hypot(src.proj.vx, src.proj.vy) || 1; kx = src.proj.vx / l; ky = src.proj.vy / l; }
     else { const l = Math.hypot(e.x - src.x, e.y - src.y) || 1; kx = (e.x - src.x) / l; ky = (e.y - src.y) / l; }
     // melee shoves: sword least, then spear, axe, hammer. Never bosses or mini-bosses, never mid-charge.
-    const charging = e.boss || e.mini || (e.D.ai === 'charger' && e.state === 2) || (e.st > 0 && ['rush', 'walk', 'flank'].includes(e.D.ai)) || (e.D.ai === 'swoop' && e.state === 1);
+    const charging = e.boss || e.mini || e.D.anchored || (e.D.ai === 'charger' && e.state === 2) || (e.st > 0 && ['rush', 'walk', 'flank'].includes(e.D.ai)) || (e.D.ai === 'swoop' && e.state === 1);
     if (!charging) {
       const K = src.melee ? ({ sword: [130, 0.15], spear: [190, 0.22], axe: [260, 0.3], hammer: [360, 0.42] }[src.wtype] || [160, 0.15]) : src.blunt ? [260, 0.2] : [70, 0];
       const heavy = e.D.hp > 70 ? 0.5 : 1;
@@ -723,7 +732,7 @@ const World = {
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });
     if (src.leech && R.chance(0.08)) this.heal(1);
     for (const h of p.hooks.kill) h(e, src);
-    if (e.boss) this.bossDown(e);
+    if (e.boss) { const other = this.enemies.find(x => x !== e && x.boss && !x.dead); if (other) { this.boss = other; Game.banner('', 'One knight remains', 1.2); } else this.bossDown(e); }
     if (e.type === 'mimic') { if (this.boss === e) this.boss = null; this.chestLoot(e.x, e.y); }
   },
   heal(n) {
@@ -800,7 +809,7 @@ const World = {
   },
   eshot(x, y, a, sp, kind = 'orb', r = 6, extra) {
     sp *= (1 + 0.035 * (this.depth - 1)) * ((Game.diff && Game.diff.shot) || 1);
-    const color = { arrowE: '#ffd27a', web: '#e8e0ff', skull: '#b6ff7a', seed: '#c8ff7a', feather: '#e8d0a8' }[kind] || '#ff4d8d';
+    const color = { arrowE: '#ffd27a', web: '#e8e0ff', skull: '#b6ff7a', seed: '#c8ff7a', feather: '#e8d0a8', bone: '#e8e2cf' }[kind] || '#ff4d8d';
     const pr = { x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: 'e', life: 6, r, kind, color, hit: null };
     if (extra) Object.assign(pr, extra);
     this.projs.push(pr); return pr;
@@ -821,7 +830,7 @@ const World = {
     const real = this.players.find(q => !q.dead); if (!real) return;
     const p = this.decoy || real; // a decoy pulls every foe's attention
     const dx = p.x - e.x, dy = p.y - e.y, dist = Math.hypot(dx, dy), toP = Math.atan2(dy, dx);
-    const slow = e.chill > 0 ? 0.55 : 1, sp = e.D.sp * slow;
+    const slow = e.chill > 0 ? 0.55 : 1, sp = e.D.sp * slow * (this.rally && !e.boss ? 1.35 : 1);
     let mx = 0, my = 0;
     const go = (a, s) => { mx = Math.cos(a) * s; my = Math.sin(a) * s; };
     const dashing = () => { if (e.st > 0) { e.st -= dt; mx = e.dvx * slow; my = e.dvy * slow; return true; } return false; };
@@ -918,6 +927,10 @@ const World = {
         else { e.st -= dt; if (e.st <= 0) { e.state = 0; e.cool = R.range(1.5, 2.5); } }
         break;
       }
+      case 'crystal': // phylactery: pulses slow orbs at you
+        e.cool -= dt; if (e.cool <= 0) { e.cool = R.range(2.0, 2.8); for (let i = -1; i <= 1; i++) this.eshot(e.x, e.y, toP + i * 0.3, 110, 'orb', 6); Snd.play('eshot'); }
+        break;
+      case 'banner': break;
       case 'mimic': { // hops at you, lunges to bite, spits teeth
         const rage = e.hp < e.maxHp * 0.5;
         e.face = toP;
@@ -943,103 +956,209 @@ const World = {
       this.hurt(p, e.D.touch);
     }
   },
-  // ---------- bosses: each one picks from its own move list ----------
+  // ---------- bosses: phases, signature mechanics, and move sets per phase ----------
+  phaseThresholds() { return Game.mode === 'campaign' ? [0.66, 0.33] : [0.5]; },
   updBoss(e, p, dt, toP, dist, go) {
-    const B = e.B, rage = e.hp < e.maxHp * 0.5, w = this.world;
-    if (rage && !e.raged) { e.raged = true; Game.banner('', e.name + ' is enraged!', 1.4); Render.kick(10); Snd.play('boss'); }
-    e.spin = (e.spin || 0) + dt * (rage ? 1.6 : 1.1);
+    const B = e.B, real = this.players[0];
+    // phase changes
+    const want = 1 + this.phaseThresholds().filter(t => e.hp / e.maxHp < t).length;
+    if (want > (e.phase || 1) && !e.twin) { e.phase = want; this.bossPhase(e); return; }
+    const ph = Math.min(e.phase || 1, B.moves.length), late = ph >= 3 || (Game.mode !== 'campaign' && ph >= 2);
+    e.spin = (e.spin || 0) + dt * (late ? 1.6 : 1.1);
+    if (e.vuln > 0) e.vuln -= dt;
+    if (B.crystals) this.lichCrystals(e, dt);
+    if (e.state === 'stunned') { e.st -= dt; if (e.st <= 0) { e.state = 0; e.cool = 0.4; } return; }
     if (e.state === 0) {
-      go(toP, B.look === 'owlbear' ? 70 : 40); e.cool -= dt; e.face = toP;
+      go(toP, B.look === 'owlbear' ? 70 : B.id === 'knight' ? 55 : 40); e.cool -= dt;
+      if (!e.charging) e.face = lerpAng(e.face, toP, 5 * dt);
       if (e.cool <= 0) {
-        let opts = B.moves.filter(m => m !== e.last);
-        if (this.enemies.length > 5) opts = opts.filter(m => !['horn', 'raise', 'summon'].includes(m));
+        let opts = B.moves[ph - 1].filter(m => m !== e.last);
+        if (this.enemies.length > 6) opts = opts.filter(m => !['horn', 'raise', 'summon', 'cubs'].includes(m));
         if (B.look === 'owlbear' && dist < 110) opts = ['swipe'];
+        if (!opts.length) opts = ['fans'];
         const pick = R.pick(opts); e.last = pick;
-        e.state = pick; e.st = { charge: 0.65, fans: 1.6, volley: 2.0, horn: 1.0, leap: 0.45, spin: 1.8, teleport: 0.6, spiral: 2.6, skulls: 1.6, raise: 1.0, sweep: 2.4, swipe: 0.45, roar: 1.2, roots: 2.0, seeds: 1.8, summon: 1.0 }[pick];
+        e.state = pick; e.st = { charge: 0.65, shieldwall: 0.7, fans: 1.6, volley: 2.0, horn: 1.0, leap: 0.45, stalk: 1.5, boulder: 1.4, flail: 3.0, teleport: 0.6, spiral: 2.6, skulls: 1.6, raise: 1.0, prison: 1.2, sweep: 2.4, slam: 0.75, swipe: 0.45, screech: 1.2, cubs: 0.8, roots: 2.0, seeds: 1.8, summon: 1.0, thornwall: 1.0, brambles: 1.6 }[pick];
         e.sub = 0; e.n = 0; e.runs = 0;
       }
       return;
     }
     e.st -= dt; e.sub -= dt;
     const ring = (n, sp, off = 0, kind = 'orb') => { for (let i = 0; i < n; i++) this.eshot(e.x, e.y, off + i * TAU / n, sp, kind, kind === 'feather' ? 5 : 6); };
-    const spawn = (list) => { for (const k of list) { const t = this.randomRoomTile(this.room, p, 100); if (t) { const m = this.makeEnemy(k, t.x, t.y); m.minion = true; this.enemies.push(m); } } Snd.play('spawn'); };
+    const spawn = (list, near) => { for (const k of list) { const t = near ? this.freeSpot(e.x + R.range(-60, 60), e.y + R.range(-60, 60)) : this.randomRoomTile(this.room, p, 100); if (t) { const m = this.makeEnemy(k, t.x, t.y); m.minion = true; this.enemies.push(m); } } Snd.play('spawn'); };
     switch (e.state) {
-      case 'charge':
-        if (e.n === 0) { e.face = lerpAng(e.face, toP, 8 * dt); if (e.st <= 0) { e.n = 1; e.st = 0.8; e.dvx = Math.cos(e.face) * 380; e.dvy = Math.sin(e.face) * 380; Snd.play('roar'); } }
-        else if (this.move(e, e.dvx * dt, e.dvy * dt) || e.st <= 0) {
-          ring(rage ? 20 : 14, 140, e.spin); Render.kick(8); Snd.play('explode');
-          if (B.look === 'owlbear' && e.runs++ < 1) { e.n = 0; e.st = 0.4; } else e.st = -1;
+      case 'charge': case 'shieldwall':
+        if (e.n === 0) { e.face = lerpAng(e.face, toP, 8 * dt); if (e.st <= 0) { e.n = 1; e.st = 0.85; e.charging = true; e.dvx = Math.cos(e.face) * 390; e.dvy = Math.sin(e.face) * 390; Snd.play('roar'); } }
+        else {
+          if (e.state === 'shieldwall') { e.fireT = (e.fireT || 0) - dt; if (e.fireT <= 0) { e.fireT = 0.05; this.hazards.push({ x: e.x, y: e.y, r: 20, arm: 0, life: 4.5, fire: true }); } }
+          const hit = this.move(e, e.dvx * dt, e.dvy * dt);
+          if (hit || e.st <= 0) {
+            e.charging = false;
+            if (hit) { const tx = Math.floor((e.x + Math.cos(e.face) * (e.r + 10)) / T), ty = Math.floor((e.y + Math.sin(e.face) * (e.r + 10)) / T), ti = ty * MW + tx; if (this.thp.has(ti)) this.hitTile(ti, 3); }
+            ring(late ? 18 : 12, 140, e.spin); Render.kick(8); Snd.play('explode');
+            if (B.selfStun && hit) { e.state = 'stunned'; e.st = 2.2; e.vuln = 2.2; Game.banner('', 'Stunned!', 0.9); return; }
+            if (B.look === 'owlbear' && e.runs++ < 1) { e.n = 0; e.st = 0.4; } else e.st = -1;
+          }
         }
         break;
       case 'fans':
-        if (e.sub <= 0) { e.sub = 0.5; const n = rage ? 9 : 7; for (let i = 0; i < n; i++) this.eshot(e.x, e.y, toP + (i - (n - 1) / 2) * 0.16, 175); Snd.play('eshot'); }
+        if (e.sub <= 0) { e.sub = 0.5; const n = late ? 9 : 7; for (let i = 0; i < n; i++) this.eshot(e.x, e.y, toP + (i - (n - 1) / 2) * 0.16, 175); Snd.play('eshot'); }
         break;
-      case 'volley': // javelin fans plus arrows raining where you stand
+      case 'volley':
         if (e.sub <= 0) {
-          e.sub = 0.5; e.n++;
+          e.sub = 0.5;
           for (let i = 0; i < 7; i++) this.eshot(e.x, e.y, toP + (i - 3) * 0.13, 230, 'arrowE', 4);
-          for (let i = 0; i < 2; i++) this.warn(p.x + R.range(-60, 60), p.y + R.range(-60, 60), 34, 0.9, 1, 'rain');
+          for (let i = 0; i < (late ? 3 : 2); i++) this.warn(p.x + R.range(-60, 60), p.y + R.range(-60, 60), 34, 0.9, 1, 'rain');
           Snd.play('eshot');
         }
         break;
       case 'horn':
         if (e.n === 0) { e.n = 1; Snd.play('roar'); Game.banner('', 'The war horn sounds!', 1.2); spawn(B.summon); }
         break;
-      case 'leap': // crouch, vanish into the air, a shadow tracks you, then slam down
+      case 'leap':
         if (e.n === 0) { if (e.st <= 0) { e.n = 1; e.air = true; e.st = 9; e.leapW = this.warn(p.x, p.y, B.look === 'owlbear' ? 85 : 70, 1.5, 2, 'slam', { follow: 0.95 }); Snd.play('whoosh'); this.burst(e.x, e.y, 20, '#c8b090', 200, 0.4); } }
         else if (e.leapW.fired) {
           const s = this.freeSpot(e.leapW.x, e.leapW.y); e.x = s.x; e.y = s.y; e.air = false;
-          ring(rage ? 18 : 12, 150, e.spin, B.look === 'owlbear' ? 'feather' : 'orb'); Render.kick(14);
-          e.st = rage && e.runs++ < 1 ? -2 : -1;
-          if (e.st === -2) { e.n = 0; e.st = 0.35; }
+          ring(late ? 18 : 12, 150, e.spin, B.look === 'owlbear' ? 'feather' : 'orb'); Render.kick(14);
+          if (late && e.runs++ < 1) { e.n = 0; e.st = 0.35; } else e.st = -1;
         }
         break;
-      case 'spin':
-        go(toP, 60);
-        if (e.sub <= 0) { e.sub = 0.28; ring(rage ? 10 : 8, 150, e.spin * 3); Snd.play('heavy'); }
+      case 'stalk': // bugbear creeps through the dark, then pounces
+        if (e.n === 0) { go(toP, 85); if (e.st <= 0.35 || dist < 90) { e.n = 1; e.st = 0.35; e.dvx = Math.cos(toP) * 430; e.dvy = Math.sin(toP) * 430; Snd.play('roar'); e.eyesFlash = 0.6; } }
+        else { this.move(e, e.dvx * dt, e.dvy * dt); if (e.st <= 0) { ring(late ? 12 : 8, 130, e.spin); Render.kick(6); } }
+        break;
+      case 'boulder': // thrown boulders land as breakable cover
+        if (e.sub <= 0 && e.n < (late ? 3 : 2)) {
+          e.sub = 0.5; e.n++;
+          const tx = p.x + R.range(-40, 40), ty = p.y + R.range(-40, 40);
+          this.warn(tx, ty, 30, 1.0, 2, 'boulder', { onFire: (w, hitAny) => { const ix = Math.floor(w.x / T), iy = Math.floor(w.y / T), i = iy * MW + ix; if (!hitAny && this.map[i] === FLOOR && this.roomId[i] >= 0) { this.map[i] = PILLAR; this.thp.set(i, 3); this.flowKey = -1; } } });
+          Snd.play('whoosh');
+        }
+        break;
+      case 'flail': // a chain-flail spin that keeps widening
+        go(toP, 45);
+        if (e.sub <= 0) { e.sub = 0.24; const k = 1 - e.st / 3; ring(late ? 10 : 8, 110 + 130 * k, e.spin * 3); Snd.play('heavy'); }
         break;
       case 'teleport':
         if (e.n === 0) { e.n = 1; const t = this.randomRoomTile(this.room, p, 220); this.burst(e.x, e.y, 24, B.c, 200, 0.5); if (t) { e.x = t.x; e.y = t.y; } this.burst(e.x, e.y, 24, B.c, 200, 0.5); Snd.play('blink'); }
-        else if (e.n === 1 && e.st <= 0.3) { e.n = 2; ring(rage ? 22 : 16, 130, e.spin); Snd.play('eshot'); }
+        else if (e.n === 1 && e.st <= 0.3) { e.n = 2; ring(late ? 22 : 16, 130, e.spin); Snd.play('eshot'); }
         break;
       case 'spiral':
-        if (e.sub <= 0) { e.sub = rage ? 0.06 : 0.085; const arms = (rage ? 4 : 3) + (w >= 3 ? 1 : 0); for (let i = 0; i < arms; i++) this.eshot(e.x, e.y, e.spin * 2.2 + i * TAU / arms, 120); Snd.play('eshot'); }
+        if (e.sub <= 0) { e.sub = late ? 0.06 : 0.085; const arms = late ? 4 : 3; for (let i = 0; i < arms; i++) this.eshot(e.x, e.y, e.spin * 2.2 + i * TAU / arms, 120); Snd.play('eshot'); }
         break;
       case 'skulls':
-        if (e.sub <= 0) { e.sub = 0.35; this.eshot(e.x, e.y, toP + R.range(-0.8, 0.8), 120, 'skull', 8, { homing: 1.7, life: 5 }); Snd.play('eshot'); }
+        if (e.sub <= 0) { e.sub = 0.35; this.eshot(e.x, e.y, toP + R.range(-0.8, 0.8), 120, 'skull', 8, { homing: late ? 2.1 : 1.7, life: 5 }); Snd.play('eshot'); }
         break;
       case 'raise':
-        if (e.n === 0) { e.n = 1; Game.banner('', 'The dead rise...', 1.2); spawn(B.summon.slice(0, rage ? 3 : 2)); }
+        if (e.n === 0) { e.n = 1; Game.banner('', 'The dead rise...', 1.2); spawn(B.summon.slice(0, late ? 3 : 2)); }
+        break;
+      case 'prison': // a ring of bones closes in, with one gap to slip through
+        if (e.n === 0) {
+          e.n = 1; const gap = R() * TAU, N = 30;
+          for (let i = 0; i < N; i++) {
+            const a = i * TAU / N; if (Math.abs(angDiff(a, gap)) < 0.42) continue;
+            const x = p.x + Math.cos(a) * 230, y = p.y + Math.sin(a) * 230; if (this.solidAt(x, y)) continue;
+            this.eshot(x, y, a + Math.PI, 80, 'bone', 7, { life: 3.4 });
+          }
+          Snd.play('roar'); Game.banner('', 'Bone prison! Find the gap', 1.2);
+        }
         break;
       case 'sweep':
-        if (e.sub <= 0) { e.sub = 0.05; const a = e.spin * 2.4; this.eshot(e.x, e.y, a, 160, B.look === 'treant' ? 'seed' : 'orb', 6); this.eshot(e.x, e.y, a + Math.PI, 160, B.look === 'treant' ? 'seed' : 'orb', 6); }
+        if (e.sub <= 0) { e.sub = 0.05; const a = e.spin * 2.4, k = B.look === 'treant' ? 'seed' : 'orb'; this.eshot(e.x, e.y, a, 160, k, 6); this.eshot(e.x, e.y, a + Math.PI, 160, k, 6); }
         break;
-      case 'swipe': // owlbear claw: a short warning in front, then a big hit
+      case 'slam': // bone knight: telegraphed overhead slam. If it whiffs, he's stuck
+        if (e.n === 0) {
+          e.n = 1; e.face = toP;
+          this.warn(e.x + Math.cos(toP) * 56, e.y + Math.sin(toP) * 56, 60, 0.7, 2, 'claw', { onFire: (w, hitAny) => { ring(late ? 10 : 6, 130, e.spin); if (!hitAny) { e.state = 'stunned'; e.st = 1.8; e.vuln = 1.8; this.text(e.x, e.y - e.r - 10, 'Stuck!', '#ffe066'); } } });
+        }
+        break;
+      case 'swipe':
         if (e.n === 0) { e.n = 1; e.face = toP; this.warn(e.x + Math.cos(toP) * 52, e.y + Math.sin(toP) * 52, 58, 0.42, 2, 'claw'); }
         break;
-      case 'roar':
-        if (e.sub <= 0 && e.n < 2) { e.sub = 0.5; e.n++; ring(rage ? 22 : 16, 135, e.spin + e.n * 0.2, 'feather'); Snd.play('roar'); Render.kick(6); }
+      case 'screech': // pushes you back and fills the air with feathers
+        if (e.sub <= 0 && e.n < 2) {
+          e.sub = 0.5; e.n++; ring(22, 135, e.spin + e.n * 0.2, 'feather'); Snd.play('roar'); Render.kick(8);
+          if (real && !real.dead) { const a = Math.atan2(real.y - e.y, real.x - e.x); real.pushX = Math.cos(a) * 520; real.pushY = Math.sin(a) * 520; }
+        }
         break;
-      case 'roots': // roots burst from the ground under and around you
+      case 'cubs':
+        if (e.n === 0) { e.n = 1; Game.banner('', 'Her cubs join the fight!', 1.2); spawn(['cub', 'cub'], true); }
+        break;
+      case 'roots':
         if (e.sub <= 0) { e.sub = 0.4; const a = R() * TAU, d = e.n++ === 0 ? 0 : R.range(30, 110); this.warn(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 42, 0.85, 1, 'root'); }
+        if (e.st <= 0.05 && B.heart) { e.vuln = 3; this.text(e.x, e.y - e.r - 14, 'Heart exposed!', '#ffd27a'); }
         break;
       case 'seeds':
         if (e.sub <= 0) { e.sub = 0.45; for (let i = 0; i < 5; i++) this.eshot(e.x, e.y, toP + (i - 2) * 0.22 + R.range(-0.05, 0.05), 190, 'seed', 5); Snd.play('eshot'); }
         break;
       case 'summon':
-        if (e.n === 0) { e.n = 1; spawn(B.summon.slice(0, rage ? 4 : 3)); }
+        if (e.n === 0) { e.n = 1; spawn(B.summon.slice(0, late ? 4 : 3)); }
+        break;
+      case 'thornwall':
+        if (e.n === 0) { e.n = 1; this.thornWall(e, p); }
+        break;
+      case 'brambles': // the floor turns to brambles except a couple of lanes
+        if (e.n === 0) {
+          e.n = 1; const r = this.room, lx = r.x + 2 + R.int(0, r.w - 6), ly = r.y + 2 + R.int(0, r.h - 6);
+          for (let y = r.y + 1; y < r.y + r.h - 1; y += 2) for (let x = r.x + 1; x < r.x + r.w - 1; x += 2) {
+            if ((x >= lx && x <= lx + 2) || (y >= ly && y <= ly + 2)) continue;
+            const i = y * MW + x; if (this.map[i] !== FLOOR) continue;
+            this.warn(x * T + T, y * T + T, 30, 1.4, 1, 'root');
+          }
+          Game.banner('', 'Brambles! Find the open lanes', 1.2); Snd.play('roar');
+        }
         break;
     }
-    if (e.st <= 0 && e.st > -3 && !e.air) { e.state = 0; e.cool = rage ? R.range(0.5, 1.0) : R.range(0.9, 1.6); }
+    if (e.st <= 0 && e.st > -3 && !e.air && e.state !== 'stunned') { e.state = 0; e.cool = late ? R.range(0.55, 1.0) : R.range(0.9, 1.5); }
+  },
+  bossPhase(e) {
+    const B = e.B, n = e.phase;
+    e.state = 0; e.cool = 1.4; e.air = false; e.charging = false;
+    Game.banner(e.name, `Phase ${n}`, 1.6); Snd.play('boss'); Render.kick(12);
+    for (const pr of this.projs) if (pr.owner === 'e') pr.dead = true;
+    this.burst(e.x, e.y, 50, B.c, 300, 0.7);
+    if (B.id === 'warlord' && n === 2) { const t = this.freeSpot(e.x + 60, e.y); const b = this.makeEnemy('banner', t.x, t.y); b.minion = true; b.spawnT = 0.4; this.enemies.push(b); Game.banner('War Banner!', 'Knock it down or the goblins grow fierce', 2); }
+    if (B.id === 'owlbear' && n === 2) { e.state = 'cubs'; e.st = 0.8; e.n = 0; }
+    if (B.id === 'knight' && n === 3) { // splits into two smaller knights
+      const hp = Math.max(1, e.hp / 2); e.hp = hp; e.maxHp = hp; e.r = 22;
+      const twin = Object.assign({}, e, { x: e.x + 40, twin: true, hp, kx: 0, ky: 0, state: 0, cool: 1.0, flash: 0, spawnT: 0.3 });
+      twin.x = this.freeSpot(e.x + 40, e.y).x; this.enemies.push(twin);
+      Game.banner('The Bone Knight splits!', 'Two knights, one fight', 2);
+    }
+  },
+  lichCrystals(e, dt) { // phylacteries: while any stand, the lich can't be hurt
+    const cs = this.enemies.filter(x => x.type === 'crystal' && !x.dead);
+    if (!e.crystalsInit) { e.crystalsInit = true; this.spawnCrystals(e); return; }
+    if (cs.length) { e.invuln = true; return; }
+    if (e.invuln) { e.invuln = false; e.exposedT = 8; Game.banner('', 'The Lich is exposed!', 1.4); Snd.play('synergy'); }
+    if (e.exposedT > 0) { e.exposedT -= dt; if (e.exposedT <= 0) { this.spawnCrystals(e); Game.banner('', 'The phylacteries reform', 1.2); } }
+  },
+  spawnCrystals(e) {
+    const r = this.room, spots = [[r.x + 3, r.y + 3], [r.x + r.w - 4, r.y + 3], [r.x + (r.w >> 1), r.y + r.h - 4]];
+    for (const [tx, ty] of spots) { const s = this.freeSpot(tx * T + T / 2, ty * T + T / 2), c = this.makeEnemy('crystal', s.x, s.y); c.minion = true; c.spawnT = 1; c.hp = c.maxHp = EDEF.crystal.hp * (1 + 0.15 * (this.depth - 1)) * ((Game.diff && Game.diff.hp) || 1); this.enemies.push(c); }
+    e.invuln = true;
+  },
+  thornWall(e, p) { // a temporary wall of brambles splits the arena; fire burns it away
+    const r = this.room, horiz = R.chance(0.5), line = horiz ? r.y + 2 + R.int(0, r.h - 5) : r.x + 2 + R.int(0, r.w - 5);
+    const len = horiz ? r.w : r.h, g1 = R.int(2, Math.floor(len / 2) - 2), g2 = R.int(Math.floor(len / 2) + 1, len - 4);
+    for (let k = 1; k < len - 1; k++) {
+      if ((k >= g1 && k <= g1 + 1) || (k >= g2 && k <= g2 + 1)) continue;
+      const x = horiz ? r.x + k : line, y = horiz ? line : r.y + k, i = y * MW + x;
+      if (this.map[i] !== FLOOR) continue;
+      const cx = x * T + T / 2, cy = y * T + T / 2;
+      if (d2(cx, cy, p.x, p.y) < 40 * 40 || d2(cx, cy, e.x, e.y) < (e.r + 24) ** 2) continue;
+      this.map[i] = PILLAR; this.thp.set(i, 3); this.thorns.set(i, 9);
+    }
+    this.flowKey = -1; Snd.play('roar'); Game.banner('', 'Thorn walls rise', 1.2);
   },
   spawnBoss(r) {
     const rng = RNG(hash(Game.seedNum, this.world, 909)), B = rng.pick(this.theme.bosses);
     const hp = (640 + 150 * this.depth) * ((Game.diff && Game.diff.boss) || 1);
     const D = { hp, r: 30, sp: 38, c: B.c, ai: 'boss', touch: 2, embers: 0 };
-    const e = { type: 'boss', D, B, boss: true, look: B.look, x: r.mx * T + T / 2, y: (r.my - 2) * T + T / 2, r: D.r, hp, maxHp: hp, kx: 0, ky: 0, spawnT: 1.4, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: 0, state: 0, cool: 1.5, face: 0, dead: false };
+    const e = { type: 'boss', D, B, boss: true, look: B.look, x: r.mx * T + T / 2, y: (r.my - 2) * T + T / 2, r: D.r, hp, maxHp: hp, kx: 0, ky: 0, spawnT: 1.4, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: 0, state: 0, cool: 1.5, face: Math.PI / 2, dead: false, phase: 1, vuln: 0 };
     e.name = properName(rng, 2); e.title = B.title;
     this.boss = e; this.enemies.push(e);
-    Game.banner(e.name, e.title, 2.2); Snd.play('boss'); Render.kick(6);
+    this.bossDark = !!B.dark;
+    Game.banner(e.name, `${e.title}  ·  ${B.tip}`, 3); Snd.play('boss'); Snd.play('roar'); Render.kick(6);
   },
   // ground warnings: a circle fills up, then whatever is in it gets hit
   warn(x, y, r, dur, dmg, kind, extra) { const w = Object.assign({ x, y, r, t: 0, dur, dmg, kind }, extra); this.warns.push(w); return w; },
@@ -1050,16 +1169,25 @@ const World = {
       if (w.follow && w.t < w.follow && p) { w.x = lerp(w.x, p.x, 1 - Math.exp(-6 * dt)); w.y = lerp(w.y, p.y, 1 - Math.exp(-6 * dt)); }
       if (!w.fired && w.t >= w.dur) {
         w.fired = true;
-        const col = { root: '#8dff7a', slam: '#d9c4a0', rain: '#ffd27a', claw: '#ff8060' }[w.kind] || '#ff4d6d';
-        this.burst(w.x, w.y, 18, col, w.r * 4, 0.4); Render.kick(w.kind === 'slam' ? 12 : 4);
+        const col = { root: '#8dff7a', slam: '#d9c4a0', rain: '#ffd27a', claw: '#ff8060', boulder: '#8a7a6a' }[w.kind] || '#ff4d6d';
+        this.burst(w.x, w.y, 18, col, w.r * 4, 0.4); Render.kick(w.kind === 'slam' || w.kind === 'boulder' ? 10 : 4);
         Snd.play(w.kind === 'slam' ? 'explode' : 'heavy');
-        for (const q of this.players) if (!q.dead && d2(w.x, w.y, q.x, q.y) < (w.r + q.r * 0.5) ** 2) this.hurt(q, w.dmg);
+        let hitAny = false;
+        for (const q of this.players) if (!q.dead && d2(w.x, w.y, q.x, q.y) < (w.r + q.r * 0.5) ** 2) { hitAny = true; this.hurt(q, w.dmg); }
+        if (w.onFire) w.onFire(w, hitAny);
       }
     }
     this.warns = this.warns.filter(w => w.t < w.dur + 0.35);
+    for (const [i, t] of this.thorns) { // thorn walls wither on their own
+      const nt = t - dt;
+      if (nt <= 0 || this.map[i] !== PILLAR) { this.thorns.delete(i); if (this.map[i] === PILLAR) { this.map[i] = FLOOR; this.thp.delete(i); this.flowKey = -1; } }
+      else this.thorns.set(i, nt);
+    }
   },
   bossDown(e) {
-    this.boss = null;
+    this.boss = null; this.bossDark = false;
+    for (const [i] of this.thorns) if (this.map[i] === PILLAR) { this.map[i] = FLOOR; this.thp.delete(i); }
+    this.thorns.clear();
     for (const pr of this.projs) if (pr.owner === 'e') pr.dead = true;
     for (const m of this.enemies) if (m.minion && !m.dead) { m.dead = true; this.burst(m.x, m.y, 10, m.D.c, 120, 0.4); }
     this.warns = [];
@@ -1070,7 +1198,9 @@ const World = {
     this.pickups.push({ kind: 'portal', x: cx, y: cy + T * 2.5, t: 0, last });
     this.pickups.push({ kind: 'chest', x: cx, y: cy - T * 0.5, t: 0, room: r, n: 3 });
     this.pickups.push({ kind: 'heart', x: cx - T * 2, y: cy + T * 1.5, t: 0 });
-    if (!last) this.pickups.push({ kind: 'weapon', x: cx + T * 2, y: cy + T * 1.5, w: makeWeapon(RNG(hash(Game.seedNum, this.depth, 4242)), { depth: this.depth, src: 'boss' }), t: 0 });
+    const wr = RNG(hash(Game.seedNum, this.depth, 4242));
+    if (Game.mode === 'campaign') { const ch = Game.char, rare = 0.08 + 0.05 * (this.world - 1) + 0.01 * Math.min(10, (ch && ch.stats.clears) || 0); this.pickups.push({ kind: 'weapon', x: cx + T * 2, y: cy + T * 1.5, w: makeWeapon(wr, { depth: this.depth, rarity: wr.chance(rare) ? 2 : 1 }), t: 0 }); }
+    else if (!last) this.pickups.push({ kind: 'weapon', x: cx + T * 2, y: cy + T * 1.5, w: makeWeapon(wr, { depth: this.depth, src: 'boss' }), t: 0 });
     const br = RNG(hash(Game.seedNum, this.depth, 4343));
     if (!last && br.chance(0.35)) this.pickups.push({ kind: 'relic', x: cx + T * 3.5, y: cy - T * 0.5, t: 0, id: br.pick(RELICS).id });
   },
@@ -1141,6 +1271,7 @@ const World = {
     const p = this.players[0];
     for (const h of this.hazards) {
       h.arm -= dt; h.life -= dt;
+      if (h.fire) { if (R.chance(dt * 6)) this.part(h.x + R.range(-10, 10), h.y, 0, -50, 0.5, 3, '#ff7a2a', true); if (!p.dead && d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 4) ** 2 && p.roll <= 0.03 && p.inv <= 0) this.hurt(p, 1); continue; }
       if (h.arm <= 0 && !p.dead && d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 2) ** 2 && p.roll <= 0.03 && p.inv <= 0) { h.life = 0; this.hurt(p, 1); this.burst(h.x, h.y, 10, '#c8c8c8', 140, 0.3); }
     }
     this.hazards = this.hazards.filter(h => h.life > 0);
@@ -1288,7 +1419,7 @@ const World = {
       }
       const nx = pr.x + pr.vx * dt, ny = pr.y + pr.vy * dt;
       if (this.solidAt(nx, ny)) {
-        if (pr.owner === 'p') { const ti = Math.floor(ny / T) * MW + Math.floor(nx / T); if (this.thp.has(ti)) { this.hitTile(ti, pr.blast ? 3 : 1); if (!pr.blast) { pr.dead = true; continue; } } }
+        if (pr.owner === 'p') { const ti = Math.floor(ny / T) * MW + Math.floor(nx / T); if (this.thp.has(ti)) { this.hitTile(ti, pr.blast || (this.thorns.has(ti) && (pr.elem === 'fire' || pr.extraElem === 'fire')) ? 3 : 1); if (!pr.blast) { pr.dead = true; continue; } } }
         if (pr.kind === 'wave') { pr.dead = true; continue; }
         if (pr.bounce > 0) {
           pr.bounce--;

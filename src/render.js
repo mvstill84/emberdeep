@@ -61,7 +61,15 @@ const Render = {
     for (const p of World.players) if (!p.dead) this.player(p);
     this.fx();
     c.setTransform(1, 0, 0, 1, 0, 0);
-    if (Game.mods.dark) this.darkness();
+    if (Game.mods.dark || World.bossDark) this.darkness();
+    const bb = World.boss;
+    if (World.bossDark && bb && !bb.dead && !bb.air && bb.spawnT <= 0) { // only his eyes show in the dark
+      const sp = this.worldToScreen(bb.x, bb.y), ex = sp.x * this.dpr, ey = sp.y * this.dpr, z = this.z, gl = (bb.eyesFlash || 0) > 0 ? 1 : 0.75;
+      bb.eyesFlash = (bb.eyesFlash || 0) - dt;
+      c.globalCompositeOperation = 'lighter';
+      for (const s of [-1, 1]) { this.drawGlow('#ff3030', ex + s * 6 * z, ey - 4 * z, 10 * z, gl); c.fillStyle = '#ffe066'; c.beginPath(); c.arc(ex + s * 6 * z, ey - 4 * z, 2.2 * z, 0, TAU); c.fill(); }
+      c.globalCompositeOperation = 'source-over';
+    }
     if (World.timeStopT > 0) { c.fillStyle = `rgba(120,160,255,${Math.min(0.18, World.timeStopT * 0.1)})`; c.fillRect(0, 0, W, H); }
     const vg = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.55)');
@@ -143,7 +151,12 @@ const Render = {
     }
     for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++) {
       const t = map[y * MW + x], px = x * T, py = y * T, cx = px + T / 2, cy = py + T / 2;
-      if (t === PILLAR) {
+      if (t === PILLAR && World.thorns.has(y * MW + x)) {
+        c.fillStyle = '#1f3a20'; c.beginPath(); c.arc(cx - 6, cy + 2, 9, 0, TAU); c.arc(cx + 6, cy - 2, 9, 0, TAU); c.arc(cx, cy - 8, 8, 0, TAU); c.fill();
+        c.strokeStyle = '#6a9a3a'; c.lineWidth = 2; c.beginPath();
+        for (let k = 0; k < 6; k++) { const a = k * 1.05 + x; c.moveTo(cx + Math.cos(a) * 6, cy + Math.sin(a) * 6); c.lineTo(cx + Math.cos(a) * 15, cy + Math.sin(a) * 15); }
+        c.stroke();
+      } else if (t === PILLAR) {
         if (th.pillar === 'stalagmite') {
           c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(cx, cy + 10, 13, 5, 0, 0, TAU); c.fill();
           c.fillStyle = th.face; c.beginPath(); c.moveTo(cx - 13, cy + 10); c.lineTo(cx - 3, cy - 16); c.lineTo(cx + 2, cy - 9); c.lineTo(cx + 6, cy - 18); c.lineTo(cx + 13, cy + 10); c.closePath(); c.fill();
@@ -181,6 +194,7 @@ const Render = {
   hazards() {
     const c = this.c;
     for (const h of World.hazards) {
+      if (h.fire) { c.globalCompositeOperation = 'lighter'; this.drawGlow('#ff7a2a', h.x, h.y, h.r * 1.6, clamp(h.life, 0, 1) * 0.6); this.drawGlow('#ffd27a', h.x, h.y, h.r * 0.7, clamp(h.life, 0, 1) * 0.5); c.globalCompositeOperation = 'source-over'; continue; }
       if (h.arm > 0) {
         const k = 1 - h.arm / 0.9, x = lerp(h.fx, h.x, k), y = lerp(h.fy, h.y, k) - Math.sin(k * Math.PI) * 40;
         c.fillStyle = '#c8c8c8'; c.fillRect(x - 3, y - 3, 6, 6);
@@ -373,6 +387,20 @@ const Render = {
         else { c.save(); c.rotate(0.6); c.strokeStyle = 'rgba(220,200,160,0.6)'; c.lineWidth = 2; c.beginPath(); c.moveTo(-5, 3); c.lineTo(5, 3); c.moveTo(-3, 0); c.lineTo(-3, 6); c.stroke(); c.restore(); }
         break;
       }
+      case 'crystal': {
+        const pulse = 0.7 + Math.sin(t * 5 + e.x) * 0.3;
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#7dff7a', 0, 0, r * 2.4, 0.6 * pulse); c.globalCompositeOperation = 'source-over';
+        c.fillStyle = col; c.beginPath(); c.moveTo(0, -r * 1.4); c.lineTo(r * 0.8, 0); c.lineTo(0, r * 1.2); c.lineTo(-r * 0.8, 0); c.closePath(); c.fill();
+        c.strokeStyle = '#e8ffe0'; c.lineWidth = 1.5; c.stroke();
+        break;
+      }
+      case 'banner': {
+        c.strokeStyle = '#6a4a2a'; c.lineWidth = 3; c.beginPath(); c.moveTo(0, r); c.lineTo(0, -r * 2.2); c.stroke();
+        const wave = Math.sin(t * 6) * 3;
+        c.fillStyle = col; c.beginPath(); c.moveTo(0, -r * 2.2); c.lineTo(r * 1.8, -r * 1.8 + wave); c.lineTo(r * 1.4, -r * 1.2); c.lineTo(r * 1.8, -r * 0.6 + wave); c.lineTo(0, -r * 0.8); c.closePath(); c.fill();
+        c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(r * 0.8, -r * 1.5, 3, 0, TAU); c.fill();
+        break;
+      }
       case 'mimic': {
         const s = e.squash || 0, open = e.st > 0 ? 0.9 : 0.25 + s * 0.4 + Math.sin(t * 8) * 0.05;
         c.translate(0, -s * 6);
@@ -445,7 +473,7 @@ const Render = {
         c.fillStyle = '#ff6040'; c.beginPath(); c.arc(0, -r, 2.2, 0, TAU); c.fill(); c.lineCap = 'butt';
         break;
       }
-      case 'owlbear': {
+      case 'cub': case 'owlbear': {
         const wind = e.state === 1 ? Math.sin(t * 40) * 2 : 0;
         c.translate(wind, 0);
         c.fillStyle = e.state === 3 ? '#7a6050' : col; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
@@ -502,6 +530,13 @@ const Render = {
       }
     }
     c.restore();
+    if (World.rally && !e.boss && e.type !== 'banner') { c.strokeStyle = 'rgba(255,77,58,0.55)'; c.lineWidth = 1.5; c.beginPath(); c.arc(e.x, e.y, e.r + 5 + Math.sin(t * 8) * 1.5, 0, TAU); c.stroke(); }
+    if (e.boss && e.invuln) { c.globalCompositeOperation = 'lighter'; c.strokeStyle = hexA('#b6ff7a', 0.5 + Math.sin(t * 6) * 0.25); c.lineWidth = 3; c.beginPath(); c.arc(e.x, e.y, e.r + 10, 0, TAU); c.stroke(); c.globalCompositeOperation = 'source-over'; }
+    if (e.boss && e.vuln > 0) {
+      if (e.B.heart) { c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffd27a', e.x, e.y - e.r * 0.3, e.r * 1.2, 0.7 + Math.sin(t * 12) * 0.2); c.fillStyle = '#ff9a3c'; c.beginPath(); c.arc(e.x, e.y - e.r * 0.3, 6, 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over'; }
+      else { c.fillStyle = '#ffe066'; for (let i = 0; i < 4; i++) { const a = t * 6 + i * TAU / 4; c.beginPath(); c.arc(e.x + Math.cos(a) * e.r, e.y - e.r - 6 + Math.sin(a) * 4, 2.5, 0, TAU); c.fill(); } }
+    }
+    if (e.B && e.B.shield && !(e.vuln > 0)) { c.save(); c.translate(e.x, e.y); c.rotate(e.face); c.strokeStyle = '#d6e0ff'; c.lineWidth = 6; c.beginPath(); c.arc(0, 0, e.r + 8, -1.0, 1.0); c.stroke(); c.restore(); }
     if (e.burn > 0) { // obvious fire: flickering tongues and a hot glow
       c.globalCompositeOperation = 'lighter';
       this.drawGlow('#ff7a2a', e.x, e.y - e.r * 0.3, e.r * 2.2, 0.55 + Math.sin(t * 20 + e.x) * 0.15);
@@ -661,7 +696,7 @@ const Render = {
     d.globalCompositeOperation = 'source-over'; d.clearRect(0, 0, W, H); d.fillStyle = 'rgba(2,1,6,0.93)'; d.fillRect(0, 0, W, H);
     d.globalCompositeOperation = 'destination-out';
     const hole = (x, y, r) => { const s = this.worldToScreen(x, y), sx = s.x * this.dpr, sy = s.y * this.dpr, rr = r * this.z; const g = d.createRadialGradient(sx, sy, 0, sx, sy, rr); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(0.6, 'rgba(0,0,0,0.8)'); g.addColorStop(1, 'rgba(0,0,0,0)'); d.fillStyle = g; d.fillRect(sx - rr, sy - rr, rr * 2, rr * 2); };
-    for (const p of World.players) if (!p.dead) hole(p.x, p.y, 190);
+    for (const p of World.players) if (!p.dead) hole(p.x, p.y, World.bossDark ? 150 : 190);
     for (const pr of World.projs) hole(pr.x, pr.y, pr.owner === 'e' ? 40 : 55);
     for (const k of World.pickups) if (k.kind !== 'ember') hole(k.x, k.y, 60);
     c.drawImage(this.dark, 0, 0);
