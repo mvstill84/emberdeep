@@ -224,6 +224,19 @@ const Render = {
         const Rl = relicById(k.id);
         c.globalCompositeOperation = 'lighter'; this.drawGlow(Rl.c, k.x, k.y + bob, 32, 0.85); c.globalCompositeOperation = 'source-over';
         relicIcon(c, Rl, k.x, k.y + bob, 14);
+      } else if (k.kind === 'corpse') {
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#9fd8ff', k.x, k.y, 40, 0.5 + Math.sin(t * 2) * 0.15); c.globalCompositeOperation = 'source-over';
+        c.fillStyle = '#c8c0b0'; c.beginPath(); c.arc(k.x - 4, k.y - 2, 6, 0, TAU); c.fill();
+        c.strokeStyle = '#c8c0b0'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(k.x + 2, k.y + 2); c.lineTo(k.x + 14, k.y + 6); c.moveTo(k.x - 2, k.y + 6); c.lineTo(k.x + 8, k.y + 12); c.stroke();
+        c.fillStyle = '#1a1420'; c.beginPath(); c.arc(k.x - 6, k.y - 3, 1.5, 0, TAU); c.arc(k.x - 2, k.y - 3, 1.5, 0, TAU); c.fill();
+      } else if (k.kind === 'merchant') {
+        c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(k.x, k.y + 12, 13, 5, 0, 0, TAU); c.fill();
+        c.fillStyle = '#5a3a6a'; c.beginPath(); c.moveTo(k.x, k.y - 18); c.lineTo(k.x + 13, k.y + 12); c.lineTo(k.x - 13, k.y + 12); c.closePath(); c.fill();
+        c.fillStyle = '#12061f'; c.beginPath(); c.arc(k.x, k.y - 5, 6, 0, TAU); c.fill();
+        c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(k.x - 2, k.y - 6, 1.3, 0, TAU); c.arc(k.x + 2, k.y - 6, 1.3, 0, TAU); c.fill();
+        c.fillStyle = '#8a6a3a'; c.fillRect(k.x + 12, k.y - 6, 9, 9);
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffb057', k.x - 15, k.y - 2, 18, 0.7 + Math.sin(t * 5) * 0.15); c.globalCompositeOperation = 'source-over';
+        c.fillStyle = '#ffd27a'; c.fillRect(k.x - 17, k.y - 4, 4, 5);
       } else if (k.kind === 'key') {
         c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffd27a', k.x, k.y + bob, 22, 0.8); c.globalCompositeOperation = 'source-over';
         c.strokeStyle = '#ffd27a'; c.lineWidth = 3; c.beginPath(); c.arc(k.x - 5, k.y + bob, 4.5, 0, TAU); c.moveTo(k.x - 0.5, k.y + bob); c.lineTo(k.x + 10, k.y + bob); c.moveTo(k.x + 6, k.y + bob); c.lineTo(k.x + 6, k.y + bob + 5); c.moveTo(k.x + 10, k.y + bob); c.lineTo(k.x + 10, k.y + bob + 4); c.stroke();

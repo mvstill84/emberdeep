@@ -71,7 +71,10 @@ const Meta = {
     this.data.stats = Object.assign({ runs: 0, wins: 0, bestFloor: 0, kills: 0 }, this.data.stats);
   },
   save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.data)); } catch (e) { } },
-  has(id) { return !!this.data.unlocks[id]; },
+  has(id) { // campaign heroes have their own Sanctum
+    const u = typeof Game !== 'undefined' && Game.mode === 'campaign' && Game.char ? Game.char.unlocks : this.data.unlocks;
+    return !!u[id];
+  },
 };
 
 // ===== Input: keyboard/mouse, touch twin-sticks, gamepads, read through "slots" =====

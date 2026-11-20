@@ -58,6 +58,7 @@ function rollRarity(rng, depth, src = 'room') {
   if (src === 'armory') { w[0] = 0; w[2] += 6; }
   if (src === 'chest') { w[0] = 0; w[3] += 3; if (d >= 4) w[4] += 0.6; }
   if (Meta.has('luck')) { w[2] *= 1.4; w[3] *= 1.4; w[4] *= 1.4; }
+  const rm = (Game.diff && Game.diff.rare) || 1; w[2] *= rm; w[3] *= rm; w[4] *= rm;
   let tot = w.reduce((a, b) => a + b, 0), r = rng() * tot;
   for (let i = 0; i < 5; i++) { r -= w[i]; if (r <= 0) return i; }
   return 0;
@@ -76,7 +77,7 @@ function makeWeapon(rng, opts = {}) {
   let rar = opts.rarity !== undefined ? opts.rarity : rollRarity(rng, opts.depth || 1, opts.src);
   if (Game.mods.allLegendary) rar = 4;
   const R0 = RARITY[rar];
-  const w = { type, cat: B.cat, rarity: rar, crit: B.crit, quirks: [] };
+  const w = { type, cat: B.cat, rarity: rar, crit: B.crit, quirks: [], uid: Math.random().toString(36).slice(2, 10) };
   if (type === 'spellbook') {
     w.spell = opts.spell || rng.pick(Object.keys(SPELLS));
     const S = SPELLS[w.spell]; w.elem = S.elem; w.dmg = rng.range(...S.dmg) * R0.m; w.cd = rng.range(...S.cd);

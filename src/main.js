@@ -63,6 +63,8 @@ const HUD = {
     else if (k) {
       let title, line1, line2 = '', col;
       if (k.kind === 'chest') { title = 'Treasure Chest'; line1 = 'Open it'; col = '#ffd27a'; }
+      else if (k.kind === 'corpse') { title = 'Your Remains'; col = '#9fd8ff'; line1 = 'Recover what you lost'; line2 = 'Beat the world boss to keep it'; }
+      else if (k.kind === 'merchant') { title = 'Wandering Merchant'; col = '#ffb057'; line1 = 'Trade this run\'s embers for wares'; }
       else if (k.kind === 'potion') { const P = potionById(k.id); title = P.n; line1 = P.d; col = P.c; line2 = p.potion ? `(replaces ${potionById(p.potion).n})` : 'One-shot. Press R to use.'; }
       else if (k.kind === 'relic') { const Rl = relicById(k.id); title = Rl.n; line1 = Rl.d; col = Rl.c; line2 = (Rl.active ? `Active: F to use, recharges over ${Rl.cd} rooms` : 'Passive: works while held') + (p.relic ? `  (replaces ${relicById(p.relic).n})` : ''); }
       else if (k.kind === 'lockchest') { title = 'Locked Chest'; col = '#d9c4ff'; line1 = p.keys > 0 ? `Use a key (you have ${p.keys})` : 'Needs a key'; line2 = k.msg || 'Holds at least Uncommon loot'; }
@@ -191,7 +193,8 @@ const HUD = {
     }
     c.textAlign = 'right'; c.fillStyle = 'rgba(233,228,255,0.6)'; c.font = font(12, 700);
     c.fillText(`${levelLabel(World.world, World.level)} · ${World.theme.n}`, ox + GRID * m + 6, oy + GRID * m + 22);
-    c.fillStyle = 'rgba(233,228,255,0.35)'; c.font = font(11, 600); c.fillText('Seed ' + Game.seed, ox + GRID * m + 6, oy + GRID * m + 37);
+    c.fillStyle = 'rgba(233,228,255,0.35)'; c.font = font(11, 600);
+    c.fillText(Game.mode === 'campaign' && Game.char ? `${Game.char.name} · Lv ${Game.char.lvl} · Campaign` : 'Seed ' + Game.seed, ox + GRID * m + 6, oy + GRID * m + 37);
     if (Game.secret) { c.fillStyle = '#7fffd4'; c.fillText(Game.secret.n, ox + GRID * m + 6, oy + GRID * m + 52); }
   },
   touch(c, W, H) {
@@ -244,22 +247,27 @@ const Game = {
   state: 'menu', seed: '', seedNum: 0, mods: {}, cls: 'fighter', secret: null, hs: 0, runEmbers: 0, runTime: 0, bannerData: null, deadT: 0,
   hitstop(t) { this.hs = Math.max(this.hs, t); },
   banner(title, sub, dur = 2) { this.bannerData = { title, sub, dur, t: 0 }; },
-  newRun(seedStr, cls) {
+  // Difficulty per mode. Quick-play is lighter and loot-rich; Campaign is a gear check.
+  DIFF: {
+    quick: { hp: 0.85, boss: 1, shot: 1, loot: 1.4, rare: 1.2 },
+    campaign: { hp: 1.6, boss: 1.5, shot: 1.1, loot: 0.5, rare: 0.6 },
+  },
+  mode: 'quick', char: null, diff: null, runXp: 0,
+  newRun(seedStr, cls, opts = {}) {
     Snd.init(); Screen.goFull();
+    this.mode = opts.campaign ? 'campaign' : 'quick';
+    if (!opts.campaign) this.char = null;
+    this.diff = this.DIFF[this.mode];
     this.cls = cls || Meta.data.lastClass || 'fighter';
-    if (this.cls !== 'fighter' && !Meta.has(this.cls)) this.cls = 'fighter';
-    Meta.data.lastClass = this.cls;
+    if (this.mode === 'quick') { if (this.cls !== 'fighter' && !Meta.has(this.cls)) this.cls = 'fighter'; Meta.data.lastClass = this.cls; }
     this.seed = normSeed(seedStr) || randomSeed();
     this.seedNum = strHash(this.seed);
-    const sec = SECRETS[this.seedNum];
+    const sec = this.mode === 'quick' ? SECRETS[this.seedNum] : null;
     this.secret = sec || null; this.mods = sec ? { ...sec.mods } : {};
-    this.runEmbers = 0; this.runTime = 0; this.deadT = 0; this.hs = 0; this.keysSpawned = 0; this.chestsSpawned = 0;
+    this.runEmbers = 0; this.runXp = 0; this.runTime = 0; this.deadT = 0; this.hs = 0; this.keysSpawned = 0; this.chestsSpawned = 0;
     Meta.data.stats.runs++; Meta.save();
     Music.setSeed(this.seedNum); Music.on = true;
-    World.startLevel(1, 1);
-    const pl = World.players[0], carry = Meta.data.carry || {};
-    if (carry.potion) pl.potion = carry.potion; if (carry.relic) pl.relic = carry.relic;
-    Meta.data.carry = {}; Meta.save();
+    World.startLevel(opts.world || 1, 1);
     if (sec) {
       const first = !Meta.data.secrets[this.seed];
       if (first) { Meta.data.secrets[this.seed] = sec.n; Meta.data.embers += 25; Meta.save(); }
@@ -275,10 +283,11 @@ const Game = {
   onDeath() { this.deadT = 1.4; Music.target = 0; },
   end(won) {
     this.state = won ? 'win' : 'dead';
+    if (this.mode === 'campaign') { Music.on = false; Snd.play(won ? 'portal' : 'death'); Campaign.finish(won); return; }
     Meta.data.embers += this.runEmbers;
     Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, World.depth);
     if (won) Meta.data.stats.wins++;
-    Shop.reroll(); Meta.save(); Music.on = false;
+    Meta.save(); Music.on = false;
     Snd.play(won ? 'portal' : 'death');
     Menu.show(won ? 'win' : 'dead');
   },
@@ -330,15 +339,17 @@ const Menu = {
       ? 'Left thumb moves. Hold the big button to attack the nearest foe, or drag on the right side to aim by hand. Hold to draw a bow, let go to fire. After a roll, attack right away to lunge.'
       : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · R potion · F relic · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
     if (name === 'title') {
-      Game.state = 'menu';
+      Game.state = 'menu'; Game.mode = 'quick'; Game.char = null;
       this.html(`<h1>EMBERDEEP</h1><div class="sub">A tiny procedural dungeon. Every seed is a different descent.</div>
-        <button class="btn" id="b-new">New Run</button>
-        <button class="btn" id="b-seed">Enter a Seed</button>
-        <div class="row"><button class="btn" id="b-sanct">Sanctum · <span class="ember">${M.embers}</span></button><button class="btn" id="b-shop">Shop</button></div>
-        <button class="btn small" id="b-saved">Saved Seeds</button>
+        <button class="btn" id="b-camp">Campaign</button>
+        <div class="sub" style="margin:-4px 0 10px;font-size:13px">One hero, a stash of gear, worlds to conquer. Gear is the gate.</div>
+        <button class="btn" id="b-new">Quick Play</button>
+        <div class="sub" style="margin:-4px 0 10px;font-size:13px">Pick a class, dive in, see how far you get. Nothing carries over.</div>
+        <div class="row"><button class="btn small" id="b-seed">Quick Play a Seed</button><button class="btn small" id="b-saved">Saved Seeds</button></div>
+        <button class="btn small" id="b-sanct">Quick-play Sanctum · <span class="ember">${M.embers}</span></button>
         <button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button>
         <div class="hint">${ctrl}</div><div class="hint" style="margin-top:8px">Build ${BUILD}</div>`);
-      this.on('b-shop', () => this.show('shop'));
+      this.on('b-camp', () => this.show('camp'));
       this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
       this.on('b-saved', () => this.show('saved'));
@@ -483,12 +494,3 @@ setTimeout(() => Updater.check(), 3000);
 setInterval(() => { if (Game.state !== 'play') Updater.check(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) Updater.check(); });
 
-// ===== Boot =====
-Meta.load();
-Render.init();
-Input.init(Render.cv);
-Menu.el = document.getElementById('menu');
-Menu.el.addEventListener('pointerdown', () => Snd.init());
-Menu.show('title');
-requestAnimationFrame(t => Game.frame(t));
-window.__emberdeep = { Game, World, Meta, Render };

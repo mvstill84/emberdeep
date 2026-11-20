@@ -50,7 +50,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 7;
+const BUILD = 8;
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -123,7 +123,10 @@ const Meta = {
     this.data.stats = Object.assign({ runs: 0, wins: 0, bestFloor: 0, kills: 0 }, this.data.stats);
   },
   save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.data)); } catch (e) { } },
-  has(id) { return !!this.data.unlocks[id]; },
+  has(id) { // campaign heroes have their own Sanctum
+    const u = typeof Game !== 'undefined' && Game.mode === 'campaign' && Game.char ? Game.char.unlocks : this.data.unlocks;
+    return !!u[id];
+  },
 };
 
 // ===== Input: keyboard/mouse, touch twin-sticks, gamepads, read through "slots" =====
@@ -438,6 +441,7 @@ function rollRarity(rng, depth, src = 'room') {
   if (src === 'armory') { w[0] = 0; w[2] += 6; }
   if (src === 'chest') { w[0] = 0; w[3] += 3; if (d >= 4) w[4] += 0.6; }
   if (Meta.has('luck')) { w[2] *= 1.4; w[3] *= 1.4; w[4] *= 1.4; }
+  const rm = (Game.diff && Game.diff.rare) || 1; w[2] *= rm; w[3] *= rm; w[4] *= rm;
   let tot = w.reduce((a, b) => a + b, 0), r = rng() * tot;
   for (let i = 0; i < 5; i++) { r -= w[i]; if (r <= 0) return i; }
   return 0;
@@ -456,7 +460,7 @@ function makeWeapon(rng, opts = {}) {
   let rar = opts.rarity !== undefined ? opts.rarity : rollRarity(rng, opts.depth || 1, opts.src);
   if (Game.mods.allLegendary) rar = 4;
   const R0 = RARITY[rar];
-  const w = { type, cat: B.cat, rarity: rar, crit: B.crit, quirks: [] };
+  const w = { type, cat: B.cat, rarity: rar, crit: B.crit, quirks: [], uid: Math.random().toString(36).slice(2, 10) };
   if (type === 'spellbook') {
     w.spell = opts.spell || rng.pick(Object.keys(SPELLS));
     const S = SPELLS[w.spell]; w.elem = S.elem; w.dmg = rng.range(...S.dmg) * R0.m; w.cd = rng.range(...S.cd);
@@ -866,6 +870,9 @@ const World = {
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     this.placeKeyAndChest();
+    const cp = Game.mode === 'campaign' && Game.char && Game.char.corpse;
+    if (cp && cp.seed === Game.seed && cp.world === w && cp.stage === l) this.pickups.push({ kind: 'corpse', x: cp.x, y: cp.y, t: 1 });
+    if (Game.mode === 'quick' && this.depth > 1) { this.pickups.push({ kind: 'merchant', x: s.mx * T + T / 2 + T * 3, y: s.my * T + T / 2 - T, t: 1 }); this.merchant = Merchant.stock(this.depth); }
     if (!keepPlayers) this.players = [this.makePlayer(0)];
     for (const p of this.players) { p.x = s.mx * T + T / 2; p.y = s.my * T + T / 2; p.vx = p.vy = 0; }
     Render.snapCamera();
@@ -873,8 +880,8 @@ const World = {
     Music.target = 0;
   },
   baseStats() {
-    const cls = Game.cls || 'fighter';
-    return { speed: 155, rollCd: 0.42, dmg: Game.mods.glass ? 3 : 1, meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
+    const cls = Game.cls || 'fighter', lvl = Game.mode === 'campaign' && Game.char ? Game.char.lvl : 1;
+    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
   },
   // Rebuild stats from scratch from the items held, so items can be dropped cleanly
   recalc(p) {
@@ -894,19 +901,19 @@ const World = {
   },
   makePlayer(slot) {
     const sr = RNG(hash(Game.seedNum, 0, 11)), C = CLASSES[Game.cls || 'fighter'];
-    const st = this.baseStats();
-    const hp = Game.mods.glass ? 2 : C.hp + (Meta.has('heart1') ? 2 : 0) + (Meta.has('heart2') ? 2 : 0);
+    const st = this.baseStats(), ch = Game.mode === 'campaign' ? Game.char : null;
+    const hp = Game.mods.glass ? 2 : C.hp + (Meta.has('heart1') ? 2 : 0) + (Meta.has('heart2') ? 2 : 0) + (ch ? 2 * Math.floor(ch.lvl / 5) : 0);
     const kit = Meta.has('kit') ? 1 : 0, gold = Game.mods.allLegendary;
     const starter = k => makeWeapon(sr, { type: k.type, spell: k.spell, rarity: gold ? 4 : kit, elem: kit || gold || k.type === 'wand' || k.type === 'spellbook' ? undefined : 'none', name: kit || gold ? undefined : k.name });
     const maxMana = Math.round(100 * C.mana);
     return {
       slot, src: 'auto', x: 0, y: 0, r: 9, vx: 0, vy: 0, hp, maxHp: hp, baseHp: hp, parryT: 0, swapT: 0, lungeQ: false, inv: 0, roll: 0, rollCd: 0, rdx: 1, rdy: 0, aim: 0, slowT: 0,
-      cls: Game.cls || 'fighter', weapons: C.kit.map(starter),
+      cls: Game.cls || 'fighter', weapons: ch ? Campaign.loadoutWeapons(ch) : C.kit.map(starter),
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
-      mana: maxMana, maxMana, manaRegen: C.regen, exhausted: false, keys: 0, stolen: null,
-      potion: null, relic: null, relicCd: 0, buffs: [], roomsCleared: 0, dispReady: false, auraT: 0, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
+      mana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), maxMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), manaRegen: C.regen, exhausted: false, keys: 0, stolen: null,
+      potion: ch ? ch.load.potion : null, relic: ch ? ch.load.relic : null, relicCd: 0, buffs: [], roomsCleared: 0, dispReady: false, auraT: 0, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
     };
   },
 
@@ -1364,6 +1371,7 @@ const World = {
     this.burst(e.x, e.y, 8, '#ffffff', 120, 0.3);
     Snd.play('kill'); Render.kick(e.boss ? 14 : 3);
     p.kills++; Meta.data.stats.kills++;
+    Game.runXp += e.boss ? 60 * this.world : e.type === 'mimic' ? 40 : 5 * e.D.embers + 2;
     const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1) * (p.relic === 'amulet' ? 1.25 : 1) + (p.relic === 'amulet' ? R() * 0.5 : 0));
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });
@@ -1432,7 +1440,7 @@ const World = {
 
   // ---------- enemies ----------
   makeEnemy(type, x, y) {
-    const D = EDEF[type], hpM = 1 + 0.17 * (this.depth - 1);
+    const D = EDEF[type], hpM = (1 + 0.17 * (this.depth - 1)) * ((Game.diff && Game.diff.hp) || 1);
     return { type, D, x, y, r: D.r, hp: D.hp * hpM, maxHp: D.hp * hpM, kx: 0, ky: 0, spawnT: 0.8, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: R.range(0, 2), state: 0, st: 0, cool: R.range(0.8, 2.2), face: 0, strafe: R.chance(0.5) ? 1 : -1, side: R.chance(0.5) ? 1 : -1, ghost: D.ai === 'wraith', raise: R.range(4, 6), dead: false };
   },
   spawnWave(wave) {
@@ -1445,7 +1453,7 @@ const World = {
     this.waveT = 1.2; Snd.play('spawn');
   },
   eshot(x, y, a, sp, kind = 'orb', r = 6, extra) {
-    sp *= 1 + 0.035 * (this.depth - 1);
+    sp *= (1 + 0.035 * (this.depth - 1)) * ((Game.diff && Game.diff.shot) || 1);
     const color = { arrowE: '#ffd27a', web: '#e8e0ff', skull: '#b6ff7a', seed: '#c8ff7a', feather: '#e8d0a8' }[kind] || '#ff4d8d';
     const pr = { x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: 'e', life: 6, r, kind, color, hit: null };
     if (extra) Object.assign(pr, extra);
@@ -1680,7 +1688,7 @@ const World = {
   },
   spawnBoss(r) {
     const rng = RNG(hash(Game.seedNum, this.world, 909)), B = rng.pick(this.theme.bosses);
-    const hp = 640 + 150 * this.depth;
+    const hp = (640 + 150 * this.depth) * ((Game.diff && Game.diff.boss) || 1);
     const D = { hp, r: 30, sp: 38, c: B.c, ai: 'boss', touch: 2, embers: 0 };
     const e = { type: 'boss', D, B, boss: true, look: B.look, x: r.mx * T + T / 2, y: (r.my - 2) * T + T / 2, r: D.r, hp, maxHp: hp, kx: 0, ky: 0, spawnT: 1.4, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: 0, state: 0, cool: 1.5, face: 0, dead: false };
     e.name = properName(rng, 2); e.title = B.title;
@@ -1712,7 +1720,7 @@ const World = {
     Game.hitstop(0.25);
     const r = this.room, cx = r.mx * T + T / 2, cy = r.my * T + T / 2;
     Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, this.depth);
-    const last = this.world >= WORLD_COUNT && this.level >= 3;
+    const last = Game.mode === 'campaign' ? true : this.world >= WORLD_COUNT && this.level >= 3; // in Campaign, a world boss ends the run
     this.pickups.push({ kind: 'portal', x: cx, y: cy + T * 2.5, t: 0, last });
     this.pickups.push({ kind: 'chest', x: cx, y: cy - T * 0.5, t: 0, room: r, n: 3 });
     this.pickups.push({ kind: 'heart', x: cx - T * 2, y: cy + T * 1.5, t: 0 });
@@ -1771,8 +1779,9 @@ const World = {
       r.noRoll = true;
       const rr = RNG(hash(Game.seedNum, this.depth, r.id, 66)), roll = rr();
       const spot = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2);
-      if (roll < 0.12) this.pickups.push({ kind: 'weapon', ...spot, w: makeWeapon(rr, { depth: this.depth }), t: 0 });
-      else if (roll < 0.19) this.pickups.push({ kind: 'potion', ...spot, id: rr.pick(POTIONS).id, t: 0 });
+      const L = (Game.diff && Game.diff.loot) || 1;
+      if (roll < 0.12 * L) this.pickups.push({ kind: 'weapon', ...spot, w: makeWeapon(rr, { depth: this.depth }), t: 0 });
+      else if (roll < 0.19 * L) this.pickups.push({ kind: 'potion', ...spot, id: rr.pick(POTIONS).id, t: 0 });
       else if (roll < 0.40) this.pickups.push({ kind: rr.chance(0.6) ? 'half' : 'heart', ...spot, t: 0 });
     }
   },
@@ -1829,7 +1838,7 @@ const World = {
     }
     this.pickups = this.pickups.filter(k => !k.gone);
     this.near = null; let bd = 40 * 40;
-    for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest', 'potion', 'relic'].includes(k.kind) && k.t > 0.5) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; this.near = k; } }
+    for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest', 'potion', 'relic', 'corpse', 'merchant'].includes(k.kind) && k.t > 0.5) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; this.near = k; } }
     if (this.near !== this.lastNear) { if (this.lastNear) this.lastNear.confirm = false; this.lastNear = this.near; }
   },
   interact(p) {
@@ -1837,6 +1846,17 @@ const World = {
     if (k.kind === 'portal') {
       if (this.unclaimed() && !k.confirm) { k.confirm = true; Snd.play('ui'); return; }
       k.gone = true; Snd.play('portal'); Game.nextLevel(k.last); return;
+    }
+    if (k.kind === 'merchant') { Game.state = 'pause'; Menu.show('merchant'); return; }
+    if (k.kind === 'corpse') { // your remains: everything you lost spills back out
+      k.gone = true; const cp = Game.char.corpse, L = cp.loot; let i = 0;
+      const at = () => { const a = i++ * 1.3; return this.freeSpot(k.x + Math.cos(a) * 34, k.y + Math.sin(a) * 34); };
+      for (const w of L.weapons) this.pickups.push({ kind: 'weapon', w, ...at(), t: 0 });
+      if (L.relic) this.pickups.push({ kind: 'relic', id: L.relic, ...at(), t: 0 });
+      if (L.potion) this.pickups.push({ kind: 'potion', id: L.potion, ...at(), t: 0 });
+      Game.char.corpse = null; Meta.save();
+      Game.banner('Remains recovered', 'Beat the boss to keep it all', 2); Snd.play('synergy'); this.burst(k.x, k.y, 30, '#9fd8ff', 200, 0.6);
+      this.pickups = this.pickups.filter(o => !o.gone); return;
     }
     if (k.kind === 'potion' || k.kind === 'relic') {
       k.gone = true; const slot = k.kind, old = p[slot];
@@ -2197,6 +2217,19 @@ const Render = {
         const Rl = relicById(k.id);
         c.globalCompositeOperation = 'lighter'; this.drawGlow(Rl.c, k.x, k.y + bob, 32, 0.85); c.globalCompositeOperation = 'source-over';
         relicIcon(c, Rl, k.x, k.y + bob, 14);
+      } else if (k.kind === 'corpse') {
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#9fd8ff', k.x, k.y, 40, 0.5 + Math.sin(t * 2) * 0.15); c.globalCompositeOperation = 'source-over';
+        c.fillStyle = '#c8c0b0'; c.beginPath(); c.arc(k.x - 4, k.y - 2, 6, 0, TAU); c.fill();
+        c.strokeStyle = '#c8c0b0'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(k.x + 2, k.y + 2); c.lineTo(k.x + 14, k.y + 6); c.moveTo(k.x - 2, k.y + 6); c.lineTo(k.x + 8, k.y + 12); c.stroke();
+        c.fillStyle = '#1a1420'; c.beginPath(); c.arc(k.x - 6, k.y - 3, 1.5, 0, TAU); c.arc(k.x - 2, k.y - 3, 1.5, 0, TAU); c.fill();
+      } else if (k.kind === 'merchant') {
+        c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(k.x, k.y + 12, 13, 5, 0, 0, TAU); c.fill();
+        c.fillStyle = '#5a3a6a'; c.beginPath(); c.moveTo(k.x, k.y - 18); c.lineTo(k.x + 13, k.y + 12); c.lineTo(k.x - 13, k.y + 12); c.closePath(); c.fill();
+        c.fillStyle = '#12061f'; c.beginPath(); c.arc(k.x, k.y - 5, 6, 0, TAU); c.fill();
+        c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(k.x - 2, k.y - 6, 1.3, 0, TAU); c.arc(k.x + 2, k.y - 6, 1.3, 0, TAU); c.fill();
+        c.fillStyle = '#8a6a3a'; c.fillRect(k.x + 12, k.y - 6, 9, 9);
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffb057', k.x - 15, k.y - 2, 18, 0.7 + Math.sin(t * 5) * 0.15); c.globalCompositeOperation = 'source-over';
+        c.fillStyle = '#ffd27a'; c.fillRect(k.x - 17, k.y - 4, 4, 5);
       } else if (k.kind === 'key') {
         c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffd27a', k.x, k.y + bob, 22, 0.8); c.globalCompositeOperation = 'source-over';
         c.strokeStyle = '#ffd27a'; c.lineWidth = 3; c.beginPath(); c.arc(k.x - 5, k.y + bob, 4.5, 0, TAU); c.moveTo(k.x - 0.5, k.y + bob); c.lineTo(k.x + 10, k.y + bob); c.moveTo(k.x + 6, k.y + bob); c.lineTo(k.x + 6, k.y + bob + 5); c.moveTo(k.x + 10, k.y + bob); c.lineTo(k.x + 10, k.y + bob + 4); c.stroke();
@@ -2816,6 +2849,8 @@ const HUD = {
     else if (k) {
       let title, line1, line2 = '', col;
       if (k.kind === 'chest') { title = 'Treasure Chest'; line1 = 'Open it'; col = '#ffd27a'; }
+      else if (k.kind === 'corpse') { title = 'Your Remains'; col = '#9fd8ff'; line1 = 'Recover what you lost'; line2 = 'Beat the world boss to keep it'; }
+      else if (k.kind === 'merchant') { title = 'Wandering Merchant'; col = '#ffb057'; line1 = 'Trade this run\'s embers for wares'; }
       else if (k.kind === 'potion') { const P = potionById(k.id); title = P.n; line1 = P.d; col = P.c; line2 = p.potion ? `(replaces ${potionById(p.potion).n})` : 'One-shot. Press R to use.'; }
       else if (k.kind === 'relic') { const Rl = relicById(k.id); title = Rl.n; line1 = Rl.d; col = Rl.c; line2 = (Rl.active ? `Active: F to use, recharges over ${Rl.cd} rooms` : 'Passive: works while held') + (p.relic ? `  (replaces ${relicById(p.relic).n})` : ''); }
       else if (k.kind === 'lockchest') { title = 'Locked Chest'; col = '#d9c4ff'; line1 = p.keys > 0 ? `Use a key (you have ${p.keys})` : 'Needs a key'; line2 = k.msg || 'Holds at least Uncommon loot'; }
@@ -2944,7 +2979,8 @@ const HUD = {
     }
     c.textAlign = 'right'; c.fillStyle = 'rgba(233,228,255,0.6)'; c.font = font(12, 700);
     c.fillText(`${levelLabel(World.world, World.level)} · ${World.theme.n}`, ox + GRID * m + 6, oy + GRID * m + 22);
-    c.fillStyle = 'rgba(233,228,255,0.35)'; c.font = font(11, 600); c.fillText('Seed ' + Game.seed, ox + GRID * m + 6, oy + GRID * m + 37);
+    c.fillStyle = 'rgba(233,228,255,0.35)'; c.font = font(11, 600);
+    c.fillText(Game.mode === 'campaign' && Game.char ? `${Game.char.name} · Lv ${Game.char.lvl} · Campaign` : 'Seed ' + Game.seed, ox + GRID * m + 6, oy + GRID * m + 37);
     if (Game.secret) { c.fillStyle = '#7fffd4'; c.fillText(Game.secret.n, ox + GRID * m + 6, oy + GRID * m + 52); }
   },
   touch(c, W, H) {
@@ -2997,22 +3033,27 @@ const Game = {
   state: 'menu', seed: '', seedNum: 0, mods: {}, cls: 'fighter', secret: null, hs: 0, runEmbers: 0, runTime: 0, bannerData: null, deadT: 0,
   hitstop(t) { this.hs = Math.max(this.hs, t); },
   banner(title, sub, dur = 2) { this.bannerData = { title, sub, dur, t: 0 }; },
-  newRun(seedStr, cls) {
+  // Difficulty per mode. Quick-play is lighter and loot-rich; Campaign is a gear check.
+  DIFF: {
+    quick: { hp: 0.85, boss: 1, shot: 1, loot: 1.4, rare: 1.2 },
+    campaign: { hp: 1.6, boss: 1.5, shot: 1.1, loot: 0.5, rare: 0.6 },
+  },
+  mode: 'quick', char: null, diff: null, runXp: 0,
+  newRun(seedStr, cls, opts = {}) {
     Snd.init(); Screen.goFull();
+    this.mode = opts.campaign ? 'campaign' : 'quick';
+    if (!opts.campaign) this.char = null;
+    this.diff = this.DIFF[this.mode];
     this.cls = cls || Meta.data.lastClass || 'fighter';
-    if (this.cls !== 'fighter' && !Meta.has(this.cls)) this.cls = 'fighter';
-    Meta.data.lastClass = this.cls;
+    if (this.mode === 'quick') { if (this.cls !== 'fighter' && !Meta.has(this.cls)) this.cls = 'fighter'; Meta.data.lastClass = this.cls; }
     this.seed = normSeed(seedStr) || randomSeed();
     this.seedNum = strHash(this.seed);
-    const sec = SECRETS[this.seedNum];
+    const sec = this.mode === 'quick' ? SECRETS[this.seedNum] : null;
     this.secret = sec || null; this.mods = sec ? { ...sec.mods } : {};
-    this.runEmbers = 0; this.runTime = 0; this.deadT = 0; this.hs = 0; this.keysSpawned = 0; this.chestsSpawned = 0;
+    this.runEmbers = 0; this.runXp = 0; this.runTime = 0; this.deadT = 0; this.hs = 0; this.keysSpawned = 0; this.chestsSpawned = 0;
     Meta.data.stats.runs++; Meta.save();
     Music.setSeed(this.seedNum); Music.on = true;
-    World.startLevel(1, 1);
-    const pl = World.players[0], carry = Meta.data.carry || {};
-    if (carry.potion) pl.potion = carry.potion; if (carry.relic) pl.relic = carry.relic;
-    Meta.data.carry = {}; Meta.save();
+    World.startLevel(opts.world || 1, 1);
     if (sec) {
       const first = !Meta.data.secrets[this.seed];
       if (first) { Meta.data.secrets[this.seed] = sec.n; Meta.data.embers += 25; Meta.save(); }
@@ -3028,10 +3069,11 @@ const Game = {
   onDeath() { this.deadT = 1.4; Music.target = 0; },
   end(won) {
     this.state = won ? 'win' : 'dead';
+    if (this.mode === 'campaign') { Music.on = false; Snd.play(won ? 'portal' : 'death'); Campaign.finish(won); return; }
     Meta.data.embers += this.runEmbers;
     Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, World.depth);
     if (won) Meta.data.stats.wins++;
-    Shop.reroll(); Meta.save(); Music.on = false;
+    Meta.save(); Music.on = false;
     Snd.play(won ? 'portal' : 'death');
     Menu.show(won ? 'win' : 'dead');
   },
@@ -3083,15 +3125,17 @@ const Menu = {
       ? 'Left thumb moves. Hold the big button to attack the nearest foe, or drag on the right side to aim by hand. Hold to draw a bow, let go to fire. After a roll, attack right away to lunge.'
       : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · R potion · F relic · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
     if (name === 'title') {
-      Game.state = 'menu';
+      Game.state = 'menu'; Game.mode = 'quick'; Game.char = null;
       this.html(`<h1>EMBERDEEP</h1><div class="sub">A tiny procedural dungeon. Every seed is a different descent.</div>
-        <button class="btn" id="b-new">New Run</button>
-        <button class="btn" id="b-seed">Enter a Seed</button>
-        <div class="row"><button class="btn" id="b-sanct">Sanctum · <span class="ember">${M.embers}</span></button><button class="btn" id="b-shop">Shop</button></div>
-        <button class="btn small" id="b-saved">Saved Seeds</button>
+        <button class="btn" id="b-camp">Campaign</button>
+        <div class="sub" style="margin:-4px 0 10px;font-size:13px">One hero, a stash of gear, worlds to conquer. Gear is the gate.</div>
+        <button class="btn" id="b-new">Quick Play</button>
+        <div class="sub" style="margin:-4px 0 10px;font-size:13px">Pick a class, dive in, see how far you get. Nothing carries over.</div>
+        <div class="row"><button class="btn small" id="b-seed">Quick Play a Seed</button><button class="btn small" id="b-saved">Saved Seeds</button></div>
+        <button class="btn small" id="b-sanct">Quick-play Sanctum · <span class="ember">${M.embers}</span></button>
         <button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button>
         <div class="hint">${ctrl}</div><div class="hint" style="margin-top:8px">Build ${BUILD}</div>`);
-      this.on('b-shop', () => this.show('shop'));
+      this.on('b-camp', () => this.show('camp'));
       this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
       this.on('b-saved', () => this.show('saved'));
@@ -3235,6 +3279,196 @@ const Updater = {
 setTimeout(() => Updater.check(), 3000);
 setInterval(() => { if (Game.state !== 'play') Updater.check(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) Updater.check(); });
+
+
+// ===== Campaign: persistent heroes, stash, loadout, world unlocks, corpse runs =====
+const SCRAP = [5, 15, 40, 100, 250]; // embers for scrapping a weapon, by rarity
+const xpNeed = lvl => Math.round(80 * Math.pow(lvl, 1.35));
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+const Campaign = {
+  data() { const M = Meta.data; if (!M.camp) M.camp = { slots: [null, null, null] }; return M.camp; },
+  hero(i) { return this.data().slots[i]; },
+  create(i, name, cls) {
+    const rng = RNG((Math.random() * 4294967296) >>> 0), C = CLASSES[cls];
+    const weapons = C.kit.map(k => makeWeapon(rng, { type: k.type, spell: k.spell, rarity: 0, elem: k.type === 'wand' || k.type === 'spellbook' ? undefined : 'none', name: k.name }));
+    const h = { name: name || C.n, cls, lvl: 1, xp: 0, embers: 0, unlocks: {}, stash: { weapons, relics: [], potions: [] }, load: { w: weapons.map(w => w.uid), relic: null, potion: null }, cleared: 0, corpse: null, shop: null, stats: { runs: 0, deaths: 0, kills: 0, clears: 0 } };
+    this.data().slots[i] = h; Meta.save(); return h;
+  },
+  loadoutWeapons(h) {
+    const pick = h.load.w.map(u => h.stash.weapons.find(w => w.uid === u)).filter(Boolean);
+    for (const w of h.stash.weapons) if (pick.length < 2 && !pick.includes(w)) pick.push(w);
+    return pick.slice(0, 2).map(w => JSON.parse(JSON.stringify(w)));
+  },
+  start(i, world, useCorpse) {
+    const h = this.hero(i); Game.char = h; Game.charIdx = i;
+    if (!useCorpse && h.corpse && h.corpse.world === world) h.corpse = null; // a fresh dungeon abandons your remains
+    const seed = useCorpse && h.corpse ? h.corpse.seed : randomSeed();
+    Game.loadPotion = h.load.potion; Game.loadRelic = h.load.relic;
+    h.stats.runs++; Meta.save();
+    Game.newRun(seed, h.cls, { campaign: true, world });
+  },
+  // End of a campaign run: embers and XP always stick; new gear only if you beat the world boss
+  finish(won) {
+    const h = Game.char, p = World.players[0], W = World.world;
+    const res = { won, embers: Game.runEmbers, xp: Game.runXp, levels: 0, banked: [], lost: [] };
+    h.embers += Game.runEmbers; h.xp += Game.runXp; h.stats.kills += p.kills;
+    while (h.xp >= xpNeed(h.lvl)) { h.xp -= xpNeed(h.lvl); h.lvl++; res.levels++; }
+    if (Game.loadPotion && p.potion !== Game.loadPotion) { // the packed potion got drunk (or swapped away)
+      const i = h.stash.potions.indexOf(Game.loadPotion); if (i >= 0) h.stash.potions.splice(i, 1);
+      if (!h.stash.potions.includes(h.load.potion)) h.load.potion = null;
+    }
+    const have = new Set(h.stash.weapons.map(w => w.uid));
+    const newW = p.weapons.filter(w => !have.has(w.uid));
+    const newRelic = p.relic && !h.stash.relics.includes(p.relic) ? p.relic : null;
+    const newPotion = p.potion && p.potion !== Game.loadPotion ? p.potion : null;
+    if (won) {
+      for (const w of newW) { h.stash.weapons.push(w); res.banked.push(w.name); }
+      if (newRelic) { h.stash.relics.push(newRelic); res.banked.push(relicById(newRelic).n); }
+      if (newPotion) { h.stash.potions.push(newPotion); res.banked.push(potionById(newPotion).n); }
+      res.unlocked = W >= h.cleared + 1 && W < WORLD_COUNT ? WORLDS[W + 1].n : null;
+      h.cleared = Math.max(h.cleared, W); h.stats.clears++;
+    } else {
+      h.stats.deaths++;
+      if (newW.length || newRelic || newPotion) {
+        h.corpse = { seed: Game.seed, world: W, stage: World.level, x: p.x, y: p.y, loot: { weapons: newW, relic: newRelic, potion: newPotion } };
+        res.lost = newW.map(w => w.name).concat(newRelic ? [relicById(newRelic).n] : [], newPotion ? [potionById(newPotion).n] : []);
+      }
+    }
+    h.shop = null; Meta.save();
+    Menu.show('campDone', res);
+  },
+  shopStock(h) {
+    if (!h.shop) { const rng = RNG((Math.random() * 4294967296) >>> 0); h.shop = { potions: rng.shuffle(POTIONS.map(x => x.id)).slice(0, 3), relics: rng.shuffle(RELICS.map(x => x.id)).slice(0, 2) }; Meta.save(); }
+    return h.shop;
+  },
+};
+
+// ===== Quick-play merchant: spend this run's embers between stages =====
+const Merchant = {
+  stock(depth) {
+    const rng = RNG(hash(Game.seedNum, depth, 919));
+    const ps = rng.shuffle(POTIONS.slice()).slice(0, 2).map(P => ({ kind: 'potion', id: P.id, price: Math.round(P.cost * 0.5) }));
+    const Rl = rng.pick(RELICS), w = makeWeapon(rng, { depth, src: 'armory' });
+    return ps.concat([{ kind: 'relic', id: Rl.id, price: Math.round(Rl.cost * 0.4) }, { kind: 'weapon', w, price: [30, 50, 90, 150, 260][w.rarity] }]);
+  },
+};
+
+// ===== Menu screens for both modes =====
+const CampScreens = {
+  camp() {
+    Game.state = 'menu';
+    const slots = Campaign.data().slots.map((h, i) => h
+      ? `<div class="card"><div class="grow"><b style="color:${CLASSES[h.cls].c}">${esc(h.name)}</b> <small style="display:inline">Level ${h.lvl} ${CLASSES[h.cls].n}</small><small>${h.cleared ? 'Cleared ' + WORLDS[h.cleared].n : 'Has not cleared a world yet'} · ${h.embers} embers</small></div><button class="btn" id="hero-${i}">Play</button><button class="btn" id="del-${i}">✕</button></div>`
+      : `<div class="card"><div class="grow"><b>Empty slot</b><small>Create a new hero</small></div><button class="btn" id="new-${i}">Create</button></div>`).join('');
+    Menu.html(`<h2>Campaign</h2><div class="sub">Each hero keeps their gear, level and Sanctum. Clear a world's boss to unlock the next.</div><div class="list">${slots}</div><button class="btn small" id="b-back">Back</button>`);
+    Campaign.data().slots.forEach((h, i) => {
+      Menu.on('hero-' + i, () => Menu.show('hub', i));
+      Menu.on('new-' + i, () => Menu.show('campNew', i));
+      Menu.on('del-' + i, () => { const b = document.getElementById('del-' + i); if (b.dataset.armed) { Campaign.data().slots[i] = null; Meta.save(); Menu.show('camp'); } else { b.dataset.armed = 1; b.textContent = 'Delete?'; } });
+    });
+    Menu.on('b-back', () => Menu.show('title'));
+  },
+  campNew(i) {
+    const cards = Object.entries(CLASSES).map(([id, C]) => `<div class="card"><div class="grow"><b style="color:${C.c}">${C.n}</b> <span style="color:#ff5470">${'♥'.repeat(C.hp / 2)}</span><small>${C.kit.map(k => k.name).join(' + ')}</small><small>${C.perk}</small><small>${C.move}: ${C.moveD}</small></div><button class="btn" id="mk-${id}">Choose</button></div>`).join('');
+    Menu.html(`<h2>New Hero</h2><input class="seed" id="hname" maxlength="16" placeholder="Name your hero" autocomplete="off" style="text-transform:none;letter-spacing:.04em"><div class="list">${cards}</div><button class="btn small" id="b-back">Back</button>`);
+    for (const id of Object.keys(CLASSES)) Menu.on('mk-' + id, () => { const n = document.getElementById('hname').value.trim(); Campaign.create(i, n, id); Menu.show('hub', i); });
+    Menu.on('b-back', () => Menu.show('camp'));
+  },
+  hub(i) {
+    Game.state = 'menu'; World.map = null;
+    const h = Campaign.hero(i), C = CLASSES[h.cls], cp = h.corpse;
+    const worlds = [1, 2, 3].map(w => {
+      const open = w <= h.cleared + 1, here = cp && cp.world === w;
+      const btns = !open ? '<small style="display:inline">Locked</small>' : here
+        ? `<button class="btn" id="corpse-${w}">Return to remains</button><button class="btn" id="go-${w}">New dungeon</button>`
+        : `<button class="btn" id="go-${w}">Descend</button>`;
+      return `<div class="card" style="${open ? '' : 'opacity:.5'}"><div class="grow"><b style="color:${WORLDS[w].tint}">${WORLDS[w].n}</b>${w <= h.cleared ? ' <span class="secret">✓</span>' : ''}<small>${here ? `Your remains lie on level ${levelLabel(w, cp.stage)}` : w <= h.cleared ? 'Cleared. Replay to farm gear.' : open ? 'Beat the boss on ' + levelLabel(w, 3) + ' to clear' : 'Clear the world before it'}</small></div>${btns}</div>`;
+    }).join('');
+    const pct = Math.round(h.xp / xpNeed(h.lvl) * 100);
+    Menu.html(`<h2 style="margin-bottom:4px">${esc(h.name)}</h2><div class="sub" style="margin-bottom:12px"><span style="color:${C.c}">Level ${h.lvl} ${C.n}</span> · XP ${pct}% · <span class="ember">${h.embers} embers</span></div>
+      <div class="list">${worlds}</div>
+      <div class="row"><button class="btn small" id="b-load">Loadout</button><button class="btn small" id="b-hsanct">Sanctum</button><button class="btn small" id="b-hshop">Shop</button></div>
+      <button class="btn small" id="b-back">Heroes</button>`);
+    for (const w of [1, 2, 3]) { Menu.on('go-' + w, () => Campaign.start(i, w, false)); Menu.on('corpse-' + w, () => Campaign.start(i, w, true)); }
+    Menu.on('b-load', () => Menu.show('loadout', i));
+    Menu.on('b-hsanct', () => Menu.show('heroSanctum', i));
+    Menu.on('b-hshop', () => Menu.show('heroShop', i));
+    Menu.on('b-back', () => Menu.show('camp'));
+  },
+  loadout(i) {
+    const h = Campaign.hero(i), L = h.load;
+    const wcard = (w, k) => {
+      const on = L.w.includes(w.uid);
+      return `<div class="card"><div class="grow"><b style="color:${RARITY[w.rarity].c}">${esc(w.name)}</b><small>${RARITY[w.rarity].n} ${w.type} · ${weaponLine(w)}</small>${w.quirks.length ? `<small>${w.quirks.map(q => QUIRKS.find(x => x.id === q).d).join(' · ')}</small>` : ''}</div>
+        <button class="btn" id="eq-w-${k}">${on ? 'Equipped' : 'Equip'}</button>${on ? '' : `<button class="btn" id="sc-w-${k}">Scrap ${SCRAP[w.rarity]}◆</button>`}</div>`;
+    };
+    const rcard = (id, k) => { const D = relicById(id), on = L.relic === id; return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b><small>${D.d}</small></div><button class="btn" id="eq-r-${k}">${on ? 'Equipped' : 'Equip'}</button></div>`; };
+    const pcard = (id, k) => { const D = potionById(id), on = L.potion === id && h.stash.potions.indexOf(id) === k; return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b><small>${D.d} · used up when you drink it</small></div><button class="btn" id="eq-p-${k}">${on ? 'Packed' : 'Pack'}</button></div>`; };
+    Menu.html(`<h2>Loadout</h2><div class="sub">Take 2 weapons, 1 relic and 1 potion into the dungeon. Your stash gear is never lost.</div>
+      <div class="list"><div class="sub" style="margin:4px 0">Weapons (${h.stash.weapons.length})</div>${h.stash.weapons.map(wcard).join('')}
+      <div class="sub" style="margin:10px 0 4px">Relics</div>${h.stash.relics.map(rcard).join('') || '<small>None yet. Find them in chests or buy them in the Shop.</small>'}
+      <div class="sub" style="margin:10px 0 4px">Potions</div>${h.stash.potions.map(pcard).join('') || '<small>None yet.</small>'}</div>
+      <button class="btn small" id="b-back">Back</button>`);
+    h.stash.weapons.forEach((w, k) => {
+      Menu.on('eq-w-' + k, () => { if (!L.w.includes(w.uid)) { L.w = [L.w[1] || L.w[0], w.uid].filter(Boolean).slice(-2); Meta.save(); } Menu.show('loadout', i); });
+      Menu.on('sc-w-' + k, () => { if (h.stash.weapons.length <= 2) return; h.stash.weapons.splice(k, 1); h.embers += SCRAP[w.rarity]; Snd.play('ember'); Meta.save(); Menu.show('loadout', i); });
+    });
+    h.stash.relics.forEach((id, k) => Menu.on('eq-r-' + k, () => { L.relic = L.relic === id ? null : id; Meta.save(); Menu.show('loadout', i); }));
+    h.stash.potions.forEach((id, k) => Menu.on('eq-p-' + k, () => { L.potion = L.potion === id ? null : id; Meta.save(); Menu.show('loadout', i); }));
+    Menu.on('b-back', () => Menu.show('hub', i));
+  },
+  heroSanctum(i) {
+    const h = Campaign.hero(i), list = UNLOCKS.filter(u => !['ranger', 'mage', 'kit'].includes(u.id));
+    const rows = list.map(u => { const own = h.unlocks[u.id], locked = u.req && !h.unlocks[u.req]; return `<div class="card"><div class="grow"><b>${u.n}</b><small>${locked ? 'Requires ' + UNLOCKS.find(x => x.id === u.req).n : u.d}</small></div>${own ? '<span class="ember">✓</span>' : `<button class="btn" id="u-${u.id}" ${h.embers < u.cost || locked ? 'disabled' : ''}>${u.cost} ◆</button>`}</div>`; }).join('');
+    Menu.html(`<h2>${esc(h.name)}'s Sanctum</h2><div class="sub"><span class="ember">${h.embers} embers</span> · Level ${h.lvl}: +${3 * (h.lvl - 1)}% damage, +${2 * (h.lvl - 1)} mana, +${Math.floor(h.lvl / 5)} hearts</div><div class="list">${rows}</div><button class="btn small" id="b-back">Back</button>`);
+    for (const u of list) Menu.on('u-' + u.id, () => { if (h.embers >= u.cost) { h.embers -= u.cost; h.unlocks[u.id] = 1; Meta.save(); Snd.play('item'); Menu.show('heroSanctum', i); } });
+    Menu.on('b-back', () => Menu.show('hub', i));
+  },
+  heroShop(i) {
+    const h = Campaign.hero(i), S = Campaign.shopStock(h);
+    const card = (kind, id, k) => { const D = kind === 'potion' ? potionById(id) : relicById(id), owned = kind === 'relic' && h.stash.relics.includes(id); return `<div class="card"><div class="grow"><b style="color:${D.c}">${D.n}</b><small>${D.d}</small></div><button class="btn" id="buy-${kind}-${k}" ${owned || h.embers < D.cost ? 'disabled' : ''}>${owned ? 'Owned' : D.cost + ' ◆'}</button></div>`; };
+    Menu.html(`<h2>Shop</h2><div class="sub">Purchases go to your stash. Stock changes after every run.<br><span class="ember">${h.embers} embers</span></div><div class="list">${S.potions.map((id, k) => card('potion', id, k)).join('')}${S.relics.map((id, k) => card('relic', id, k)).join('') || ''}</div><button class="btn small" id="b-back">Back</button>`);
+    ['potion', 'relic'].forEach(kind => (kind === 'potion' ? S.potions : S.relics).forEach((id, k) => Menu.on(`buy-${kind}-${k}`, () => {
+      const D = kind === 'potion' ? potionById(id) : relicById(id); if (h.embers < D.cost) return;
+      h.embers -= D.cost; (kind === 'potion' ? h.stash.potions : h.stash.relics).push(id); (kind === 'potion' ? S.potions : S.relics).splice(k, 1);
+      Meta.save(); Snd.play('item'); Menu.show('heroShop', i);
+    })));
+    Menu.on('b-back', () => Menu.show('hub', i));
+  },
+  campDone(r) {
+    const h = Game.char, i = Game.charIdx;
+    const body = r.won
+      ? `<h1 style="font-size:clamp(34px,7vw,56px)">WORLD CLEARED</h1><div class="sub">${WORLDS[World.world].n} is yours.${r.unlocked ? ` <b>${r.unlocked}</b> is now open.` : ''}</div>
+         <div class="sub">${r.banked.length ? 'Added to your stash: <b>' + r.banked.map(esc).join(', ') + '</b>' : 'No new gear this time.'}</div>`
+      : `<h1 style="font-size:clamp(34px,7vw,56px)">FALLEN</h1><div class="sub">${r.lost.length ? `Your remains hold <b>${r.lost.map(esc).join(', ')}</b> on level ${levelLabel(World.world, World.level)}. Return to them on your next run.` : 'You lost nothing you had banked.'}</div>`;
+    Menu.html(`${body}<div class="stats"><span>Embers kept</span><span class="ember">+${r.embers}</span><span>XP</span><span>+${r.xp}${r.levels ? ` · <b class="secret">Level up! Now ${h.lvl}</b>` : ''}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span></div>
+      <button class="btn" id="b-hub">Back to ${esc(h.name)}</button>`);
+    Menu.on('b-hub', () => Menu.show('hub', i));
+  },
+  merchant() {
+    const st = World.merchant || [], p = World.players[0];
+    const rows = st.map((it, k) => {
+      if (it.sold) return '';
+      const D = it.kind === 'potion' ? potionById(it.id) : it.kind === 'relic' ? relicById(it.id) : null;
+      const name = D ? D.n : it.w.name, col = D ? D.c : RARITY[it.w.rarity].c, desc = D ? D.d : `${RARITY[it.w.rarity].n} ${it.w.type} · ${weaponLine(it.w)}`;
+      return `<div class="card"><div class="grow"><b style="color:${col}">${esc(name)}</b><small>${desc}</small></div><button class="btn" id="m-${k}" ${Game.runEmbers < it.price ? 'disabled' : ''}>${it.price} ◆</button></div>`;
+    }).join('');
+    Menu.html(`<h2>Wandering Merchant</h2><div class="sub">"Embers for wares, friend." You have <span class="ember">${Game.runEmbers}</span> this run. What you don't spend is banked at the end.</div><div class="list">${rows || '<div class="sub">Sold out.</div>'}</div><button class="btn" id="b-leave">Leave</button>`);
+    st.forEach((it, k) => Menu.on('m-' + k, () => {
+      if (it.sold || Game.runEmbers < it.price) return;
+      Game.runEmbers -= it.price; it.sold = true; Snd.play('item');
+      if (it.kind === 'weapon') World.pickups.push({ kind: 'weapon', w: it.w, x: p.x + 24, y: p.y, t: 0 });
+      else { const old = p[it.kind]; p[it.kind] = it.id; if (it.kind === 'relic') p.relicCd = 0; if (old) World.pickups.push({ kind: it.kind, id: old, x: p.x + 24, y: p.y, t: 0 }); }
+      Menu.show('merchant');
+    }));
+    Menu.on('b-leave', () => { Game.state = 'play'; Menu.hide(); });
+  },
+};
+{
+  const base = Menu.show.bind(Menu);
+  Menu.show = function (name, arg) { if (CampScreens[name]) CampScreens[name](arg); else base(name, arg); };
+}
 
 // ===== Boot =====
 Meta.load();

@@ -214,6 +214,9 @@ const World = {
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     this.placeKeyAndChest();
+    const cp = Game.mode === 'campaign' && Game.char && Game.char.corpse;
+    if (cp && cp.seed === Game.seed && cp.world === w && cp.stage === l) this.pickups.push({ kind: 'corpse', x: cp.x, y: cp.y, t: 1 });
+    if (Game.mode === 'quick' && this.depth > 1) { this.pickups.push({ kind: 'merchant', x: s.mx * T + T / 2 + T * 3, y: s.my * T + T / 2 - T, t: 1 }); this.merchant = Merchant.stock(this.depth); }
     if (!keepPlayers) this.players = [this.makePlayer(0)];
     for (const p of this.players) { p.x = s.mx * T + T / 2; p.y = s.my * T + T / 2; p.vx = p.vy = 0; }
     Render.snapCamera();
@@ -221,8 +224,8 @@ const World = {
     Music.target = 0;
   },
   baseStats() {
-    const cls = Game.cls || 'fighter';
-    return { speed: 155, rollCd: 0.42, dmg: Game.mods.glass ? 3 : 1, meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
+    const cls = Game.cls || 'fighter', lvl = Game.mode === 'campaign' && Game.char ? Game.char.lvl : 1;
+    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : 1, rangedDmg: cls === 'ranger' ? 1.2 : 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
   },
   // Rebuild stats from scratch from the items held, so items can be dropped cleanly
   recalc(p) {
@@ -242,19 +245,19 @@ const World = {
   },
   makePlayer(slot) {
     const sr = RNG(hash(Game.seedNum, 0, 11)), C = CLASSES[Game.cls || 'fighter'];
-    const st = this.baseStats();
-    const hp = Game.mods.glass ? 2 : C.hp + (Meta.has('heart1') ? 2 : 0) + (Meta.has('heart2') ? 2 : 0);
+    const st = this.baseStats(), ch = Game.mode === 'campaign' ? Game.char : null;
+    const hp = Game.mods.glass ? 2 : C.hp + (Meta.has('heart1') ? 2 : 0) + (Meta.has('heart2') ? 2 : 0) + (ch ? 2 * Math.floor(ch.lvl / 5) : 0);
     const kit = Meta.has('kit') ? 1 : 0, gold = Game.mods.allLegendary;
     const starter = k => makeWeapon(sr, { type: k.type, spell: k.spell, rarity: gold ? 4 : kit, elem: kit || gold || k.type === 'wand' || k.type === 'spellbook' ? undefined : 'none', name: kit || gold ? undefined : k.name });
     const maxMana = Math.round(100 * C.mana);
     return {
       slot, src: 'auto', x: 0, y: 0, r: 9, vx: 0, vy: 0, hp, maxHp: hp, baseHp: hp, parryT: 0, swapT: 0, lungeQ: false, inv: 0, roll: 0, rollCd: 0, rdx: 1, rdy: 0, aim: 0, slowT: 0,
-      cls: Game.cls || 'fighter', weapons: C.kit.map(starter),
+      cls: Game.cls || 'fighter', weapons: ch ? Campaign.loadoutWeapons(ch) : C.kit.map(starter),
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
-      mana: maxMana, maxMana, manaRegen: C.regen, exhausted: false, keys: 0, stolen: null,
-      potion: null, relic: null, relicCd: 0, buffs: [], roomsCleared: 0, dispReady: false, auraT: 0, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
+      mana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), maxMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), manaRegen: C.regen, exhausted: false, keys: 0, stolen: null,
+      potion: ch ? ch.load.potion : null, relic: ch ? ch.load.relic : null, relicCd: 0, buffs: [], roomsCleared: 0, dispReady: false, auraT: 0, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
     };
   },
 
@@ -712,6 +715,7 @@ const World = {
     this.burst(e.x, e.y, 8, '#ffffff', 120, 0.3);
     Snd.play('kill'); Render.kick(e.boss ? 14 : 3);
     p.kills++; Meta.data.stats.kills++;
+    Game.runXp += e.boss ? 60 * this.world : e.type === 'mimic' ? 40 : 5 * e.D.embers + 2;
     const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1) * (p.relic === 'amulet' ? 1.25 : 1) + (p.relic === 'amulet' ? R() * 0.5 : 0));
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });
@@ -780,7 +784,7 @@ const World = {
 
   // ---------- enemies ----------
   makeEnemy(type, x, y) {
-    const D = EDEF[type], hpM = 1 + 0.17 * (this.depth - 1);
+    const D = EDEF[type], hpM = (1 + 0.17 * (this.depth - 1)) * ((Game.diff && Game.diff.hp) || 1);
     return { type, D, x, y, r: D.r, hp: D.hp * hpM, maxHp: D.hp * hpM, kx: 0, ky: 0, spawnT: 0.8, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: R.range(0, 2), state: 0, st: 0, cool: R.range(0.8, 2.2), face: 0, strafe: R.chance(0.5) ? 1 : -1, side: R.chance(0.5) ? 1 : -1, ghost: D.ai === 'wraith', raise: R.range(4, 6), dead: false };
   },
   spawnWave(wave) {
@@ -793,7 +797,7 @@ const World = {
     this.waveT = 1.2; Snd.play('spawn');
   },
   eshot(x, y, a, sp, kind = 'orb', r = 6, extra) {
-    sp *= 1 + 0.035 * (this.depth - 1);
+    sp *= (1 + 0.035 * (this.depth - 1)) * ((Game.diff && Game.diff.shot) || 1);
     const color = { arrowE: '#ffd27a', web: '#e8e0ff', skull: '#b6ff7a', seed: '#c8ff7a', feather: '#e8d0a8' }[kind] || '#ff4d8d';
     const pr = { x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: 'e', life: 6, r, kind, color, hit: null };
     if (extra) Object.assign(pr, extra);
@@ -1028,7 +1032,7 @@ const World = {
   },
   spawnBoss(r) {
     const rng = RNG(hash(Game.seedNum, this.world, 909)), B = rng.pick(this.theme.bosses);
-    const hp = 640 + 150 * this.depth;
+    const hp = (640 + 150 * this.depth) * ((Game.diff && Game.diff.boss) || 1);
     const D = { hp, r: 30, sp: 38, c: B.c, ai: 'boss', touch: 2, embers: 0 };
     const e = { type: 'boss', D, B, boss: true, look: B.look, x: r.mx * T + T / 2, y: (r.my - 2) * T + T / 2, r: D.r, hp, maxHp: hp, kx: 0, ky: 0, spawnT: 1.4, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: 0, state: 0, cool: 1.5, face: 0, dead: false };
     e.name = properName(rng, 2); e.title = B.title;
@@ -1060,7 +1064,7 @@ const World = {
     Game.hitstop(0.25);
     const r = this.room, cx = r.mx * T + T / 2, cy = r.my * T + T / 2;
     Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, this.depth);
-    const last = this.world >= WORLD_COUNT && this.level >= 3;
+    const last = Game.mode === 'campaign' ? true : this.world >= WORLD_COUNT && this.level >= 3; // in Campaign, a world boss ends the run
     this.pickups.push({ kind: 'portal', x: cx, y: cy + T * 2.5, t: 0, last });
     this.pickups.push({ kind: 'chest', x: cx, y: cy - T * 0.5, t: 0, room: r, n: 3 });
     this.pickups.push({ kind: 'heart', x: cx - T * 2, y: cy + T * 1.5, t: 0 });
@@ -1119,8 +1123,9 @@ const World = {
       r.noRoll = true;
       const rr = RNG(hash(Game.seedNum, this.depth, r.id, 66)), roll = rr();
       const spot = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2);
-      if (roll < 0.12) this.pickups.push({ kind: 'weapon', ...spot, w: makeWeapon(rr, { depth: this.depth }), t: 0 });
-      else if (roll < 0.19) this.pickups.push({ kind: 'potion', ...spot, id: rr.pick(POTIONS).id, t: 0 });
+      const L = (Game.diff && Game.diff.loot) || 1;
+      if (roll < 0.12 * L) this.pickups.push({ kind: 'weapon', ...spot, w: makeWeapon(rr, { depth: this.depth }), t: 0 });
+      else if (roll < 0.19 * L) this.pickups.push({ kind: 'potion', ...spot, id: rr.pick(POTIONS).id, t: 0 });
       else if (roll < 0.40) this.pickups.push({ kind: rr.chance(0.6) ? 'half' : 'heart', ...spot, t: 0 });
     }
   },
@@ -1177,7 +1182,7 @@ const World = {
     }
     this.pickups = this.pickups.filter(k => !k.gone);
     this.near = null; let bd = 40 * 40;
-    for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest', 'potion', 'relic'].includes(k.kind) && k.t > 0.5) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; this.near = k; } }
+    for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest', 'potion', 'relic', 'corpse', 'merchant'].includes(k.kind) && k.t > 0.5) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; this.near = k; } }
     if (this.near !== this.lastNear) { if (this.lastNear) this.lastNear.confirm = false; this.lastNear = this.near; }
   },
   interact(p) {
@@ -1185,6 +1190,17 @@ const World = {
     if (k.kind === 'portal') {
       if (this.unclaimed() && !k.confirm) { k.confirm = true; Snd.play('ui'); return; }
       k.gone = true; Snd.play('portal'); Game.nextLevel(k.last); return;
+    }
+    if (k.kind === 'merchant') { Game.state = 'pause'; Menu.show('merchant'); return; }
+    if (k.kind === 'corpse') { // your remains: everything you lost spills back out
+      k.gone = true; const cp = Game.char.corpse, L = cp.loot; let i = 0;
+      const at = () => { const a = i++ * 1.3; return this.freeSpot(k.x + Math.cos(a) * 34, k.y + Math.sin(a) * 34); };
+      for (const w of L.weapons) this.pickups.push({ kind: 'weapon', w, ...at(), t: 0 });
+      if (L.relic) this.pickups.push({ kind: 'relic', id: L.relic, ...at(), t: 0 });
+      if (L.potion) this.pickups.push({ kind: 'potion', id: L.potion, ...at(), t: 0 });
+      Game.char.corpse = null; Meta.save();
+      Game.banner('Remains recovered', 'Beat the boss to keep it all', 2); Snd.play('synergy'); this.burst(k.x, k.y, 30, '#9fd8ff', 200, 0.6);
+      this.pickups = this.pickups.filter(o => !o.gone); return;
     }
     if (k.kind === 'potion' || k.kind === 'relic') {
       k.gone = true; const slot = k.kind, old = p[slot];
