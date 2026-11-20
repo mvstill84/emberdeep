@@ -10,4 +10,4 @@ A tiny procedural fantasy dungeon crawler. The whole game is `index.html`: no im
 
 ## Working on it
 
-Edit files in `src/`, then run `node build.mjs` to rebuild `index.html`. Netlify serves `index.html` straight from the repo root.
+Edit files in `src/`, then run `node build.mjs` to rebuild `index.html`. GitHub Pages serves `index.html` straight from the repo root of `main`, so a push is a deploy.

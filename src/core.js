@@ -71,6 +71,22 @@ const Meta = {
     this.data.stats = Object.assign({ runs: 0, wins: 0, bestFloor: 0, kills: 0 }, this.data.stats);
   },
   save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.data)); } catch (e) { } },
+  // Save codes: the whole save as one pasteable string, so progress can move between devices or sites
+  exportCode() {
+    const bytes = new TextEncoder().encode(JSON.stringify(this.data));
+    let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
+    return 'EMBER1.' + btoa(bin);
+  },
+  importCode(code) { // returns an error message, or null on success
+    code = (code || '').replace(/\s+/g, '');
+    if (!code.startsWith('EMBER1.')) return "That doesn't look like an Emberdeep save code.";
+    let d;
+    try { const bin = atob(code.slice(7)); d = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)))); }
+    catch (e) { return 'That code is damaged or incomplete. Try copying it again.'; }
+    if (!d || typeof d !== 'object' || typeof d.embers !== 'number') return "That code doesn't contain a save.";
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); } catch (e) { return "Couldn't write the save on this device."; }
+    return null;
+  },
   has(id) { // campaign heroes have their own Sanctum
     const u = typeof Game !== 'undefined' && Game.mode === 'campaign' && Game.char ? Game.char.unlocks : this.data.unlocks;
     return !!u[id];
@@ -88,7 +104,7 @@ const Input = {
   padPrev: [],
   init(canvas) {
     addEventListener('keydown', e => {
-      if (e.target.tagName === 'INPUT') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       const k = e.key.toLowerCase();
       if (!this.keys.has(k)) this.pressed.add(k);
       this.keys.add(k); this.last = 'kb';
@@ -120,15 +136,8 @@ const Input = {
     addEventListener('pointerup', up); addEventListener('pointercancel', up);
   },
   // Touch layout: buttons bottom-right, left half = move stick, right half = aim/attack stick
-  // Netlify's free-tier badge sits in the bottom-right corner and swallows taps; keep our buttons above it
-  badgeH() {
-    const now = performance.now(); if (now - (this._bt || 0) < 1000) return this._bh || 0; this._bt = now;
-    const f = document.getElementById('nl-badge-frame'); let h = 0;
-    if (f) { const r = f.getBoundingClientRect(); if (r.width && r.height && getComputedStyle(f).display !== 'none') h = innerHeight - r.top; }
-    return (this._bh = clamp(h, 0, 90));
-  },
   touchButtons() {
-    const w = innerWidth, s = Math.min(w, innerHeight), A = s * 0.115, h = innerHeight - this.badgeH();
+    const w = innerWidth, s = Math.min(w, innerHeight), A = s * 0.115, h = innerHeight;
     return [
       { id: 'attack', x: w - A * 1.35, y: h - A * 1.35, r: A },
       { id: 'roll', x: w - A * 3.5, y: h - A * 1.12, r: A * 0.88 },

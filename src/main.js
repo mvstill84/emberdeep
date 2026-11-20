@@ -350,14 +350,40 @@ const Menu = {
         <div class="sub" style="margin:-4px 0 10px;font-size:13px">Pick a class, dive in, see how far you get. Nothing carries over.</div>
         <div class="row"><button class="btn small" id="b-seed">Quick Play a Seed</button><button class="btn small" id="b-saved">Saved Seeds</button></div>
         <button class="btn small" id="b-sanct">Quick-play Sanctum · <span class="ember">${M.embers}</span></button>
-        <button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button>
+        <div class="row"><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button><button class="btn small" id="b-data">Save Data</button></div>
         <div class="hint">${ctrl}</div><div class="hint" style="margin-top:8px">Build ${BUILD}</div>`);
+      this.on('b-data', () => this.show('data'));
       this.on('b-camp', () => this.show('camp'));
       this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
       this.on('b-saved', () => this.show('saved'));
       this.on('b-sanct', () => this.show('sanctum'));
       this.on('b-mute', () => { Snd.setMuted(!M.muted); this.show('title'); });
+    } else if (name === 'data') {
+      const code = Meta.exportCode();
+      this.html(`<h2>Save Data</h2><div class="sub">Your save code holds everything: embers, unlocks, campaign heroes and their gear, saved seeds. Keep a copy somewhere safe, or paste it on another device.</div>
+        <textarea class="code" id="exp" readonly>${code}</textarea>
+        <div class="row"><button class="btn small" id="b-copy">Copy Code</button>${navigator.share ? '<button class="btn small" id="b-share">Share…</button>' : ''}</div>
+        <div class="sub" style="margin-top:14px">Load a save: paste a code below. This replaces everything on this device.</div>
+        <textarea class="code" id="imp" placeholder="Paste a save code (starts with EMBER1.)" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+        <div class="sub" id="imp-msg" style="min-height:1.2em"></div>
+        <div class="row"><button class="btn small" id="b-back">Back</button><button class="btn small" id="b-load">Load Save</button></div>`);
+      const exp = document.getElementById('exp'), msg = document.getElementById('imp-msg');
+      const say = (t, bad) => { msg.textContent = t; msg.style.color = bad ? '#ff7a6a' : '#9fe38a'; };
+      this.on('b-copy', () => {
+        const fallback = () => { exp.focus(); exp.select(); exp.setSelectionRange(0, code.length); try { document.execCommand('copy'); say('Copied.'); } catch (e) { say('Select the code above and copy it.', true); } };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(() => say('Copied.'), fallback); else fallback();
+      });
+      this.on('b-share', () => { navigator.share({ title: 'Emberdeep save', text: code }).catch(() => {}); });
+      this.on('b-back', () => this.show('title'));
+      this.on('b-load', () => {
+        const b = document.getElementById('b-load'), val = document.getElementById('imp').value;
+        if (!val.trim()) { say('Paste a code first.', true); return; }
+        if (!b.dataset.armed) { b.dataset.armed = 1; b.textContent = 'Tap again to overwrite'; say('This wipes the save on this device.', true); return; }
+        const err = Meta.importCode(val);
+        if (err) { say(err, true); b.dataset.armed = ''; b.textContent = 'Load Save'; return; }
+        say('Loaded. Restarting…'); setTimeout(() => location.reload(), 600);
+      });
     } else if (name === 'seed') {
       this.html(`<h2>Enter a Seed</h2><div class="sub">Same seed, same dungeon. Some seeds hold secrets.</div>
         <input class="seed" id="seedin" maxlength="16" placeholder="${randomSeed()}" autocomplete="off" autocapitalize="characters" spellcheck="false">
