@@ -731,7 +731,7 @@ const World = {
     this.burst(e.x, e.y, 8, '#ffffff', 120, 0.3);
     Snd.play('kill'); Render.kick(e.boss ? 14 : 3);
     p.kills++; Meta.data.stats.kills++;
-    Game.runXp += e.boss ? 60 * this.world : e.type === 'mimic' ? 40 : 5 * e.D.embers + 2;
+    Game.runXp += e.boss ? 40 * this.world : e.type === 'mimic' ? 20 : e.minion ? 1 : 2 * e.D.embers;
     const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1) * (p.relic === 'amulet' ? 1.25 : 1) + (p.relic === 'amulet' ? R() * 0.5 : 0));
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });

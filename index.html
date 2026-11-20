@@ -51,7 +51,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 11;
+const BUILD = 12;
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -184,8 +184,8 @@ const Input = {
     const w = innerWidth, s = Math.min(w, innerHeight), A = s * 0.115, h = innerHeight - this.badgeH();
     return [
       { id: 'attack', x: w - A * 1.35, y: h - A * 1.35, r: A },
-      { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.75 },
-      { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.68 },
+      { id: 'roll', x: w - A * 3.5, y: h - A * 1.12, r: A * 0.88 },
+      { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.8 },
       { id: 'use', x: w - A * 3.05, y: h - A * 2.75, r: A * 0.6 },
       { id: 'potion', x: w - A * 4.95, y: h - A * 0.9, r: A * 0.5 },
       { id: 'relic', x: w - A * 4.75, y: h - A * 2.3, r: A * 0.5 },
@@ -1407,7 +1407,7 @@ const World = {
     this.burst(e.x, e.y, 8, '#ffffff', 120, 0.3);
     Snd.play('kill'); Render.kick(e.boss ? 14 : 3);
     p.kills++; Meta.data.stats.kills++;
-    Game.runXp += e.boss ? 60 * this.world : e.type === 'mimic' ? 40 : 5 * e.D.embers + 2;
+    Game.runXp += e.boss ? 40 * this.world : e.type === 'mimic' ? 20 : e.minion ? 1 : 2 * e.D.embers;
     const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1) * (p.relic === 'amulet' ? 1.25 : 1) + (p.relic === 'amulet' ? R() * 0.5 : 0));
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });
@@ -3499,16 +3499,25 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) Upda
 
 // ===== Campaign: persistent heroes, stash, loadout, world unlocks, corpse runs =====
 const SCRAP = [5, 15, 40, 100, 250]; // embers for scrapping a weapon, by rarity
-const xpNeed = lvl => Math.round(80 * Math.pow(lvl, 1.35));
+// XP curve v2: about one level per world clear early on, slowing down after that
+const xpNeed = lvl => Math.round(100 * Math.pow(lvl, 1.6));
+const xpNeedV1 = lvl => Math.round(80 * Math.pow(lvl, 1.35));
+function migrateHero(h) { // heroes made on the old, faster curve get re-leveled from their total XP
+  if (!h || h.xpv === 2) return;
+  let total = h.xp; for (let l = 1; l < h.lvl; l++) total += xpNeedV1(l);
+  total = Math.round(total * 0.45); // XP per kill was also cut, so scale old XP to match
+  h.lvl = 1; while (total >= xpNeed(h.lvl)) { total -= xpNeed(h.lvl); h.lvl++; }
+  h.xp = total; h.xpv = 2;
+}
 const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
 const Campaign = {
-  data() { const M = Meta.data; if (!M.camp) M.camp = { slots: [null, null, null] }; return M.camp; },
+  data() { const M = Meta.data; if (!M.camp) M.camp = { slots: [null, null, null] }; for (const h of M.camp.slots) migrateHero(h); return M.camp; },
   hero(i) { return this.data().slots[i]; },
   create(i, name, cls) {
     const rng = RNG((Math.random() * 4294967296) >>> 0), C = CLASSES[cls];
     const weapons = C.kit.map(k => makeWeapon(rng, { type: k.type, spell: k.spell, rarity: 0, elem: k.type === 'wand' || k.type === 'spellbook' ? undefined : 'none', name: k.name }));
-    const h = { name: name || C.n, cls, lvl: 1, xp: 0, embers: 0, unlocks: {}, stash: { weapons, relics: [], potions: [] }, load: { w: weapons.map(w => w.uid), relic: null, potion: null }, cleared: 0, corpse: null, shop: null, stats: { runs: 0, deaths: 0, kills: 0, clears: 0 } };
+    const h = { name: name || C.n, cls, lvl: 1, xp: 0, xpv: 2, embers: 0, unlocks: {}, stash: { weapons, relics: [], potions: [] }, load: { w: weapons.map(w => w.uid), relic: null, potion: null }, cleared: 0, corpse: null, shop: null, stats: { runs: 0, deaths: 0, kills: 0, clears: 0 } };
     this.data().slots[i] = h; Meta.save(); return h;
   },
   loadoutWeapons(h) {

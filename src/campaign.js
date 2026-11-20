@@ -1,15 +1,24 @@
 // ===== Campaign: persistent heroes, stash, loadout, world unlocks, corpse runs =====
 const SCRAP = [5, 15, 40, 100, 250]; // embers for scrapping a weapon, by rarity
-const xpNeed = lvl => Math.round(80 * Math.pow(lvl, 1.35));
+// XP curve v2: about one level per world clear early on, slowing down after that
+const xpNeed = lvl => Math.round(100 * Math.pow(lvl, 1.6));
+const xpNeedV1 = lvl => Math.round(80 * Math.pow(lvl, 1.35));
+function migrateHero(h) { // heroes made on the old, faster curve get re-leveled from their total XP
+  if (!h || h.xpv === 2) return;
+  let total = h.xp; for (let l = 1; l < h.lvl; l++) total += xpNeedV1(l);
+  total = Math.round(total * 0.45); // XP per kill was also cut, so scale old XP to match
+  h.lvl = 1; while (total >= xpNeed(h.lvl)) { total -= xpNeed(h.lvl); h.lvl++; }
+  h.xp = total; h.xpv = 2;
+}
 const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
 const Campaign = {
-  data() { const M = Meta.data; if (!M.camp) M.camp = { slots: [null, null, null] }; return M.camp; },
+  data() { const M = Meta.data; if (!M.camp) M.camp = { slots: [null, null, null] }; for (const h of M.camp.slots) migrateHero(h); return M.camp; },
   hero(i) { return this.data().slots[i]; },
   create(i, name, cls) {
     const rng = RNG((Math.random() * 4294967296) >>> 0), C = CLASSES[cls];
     const weapons = C.kit.map(k => makeWeapon(rng, { type: k.type, spell: k.spell, rarity: 0, elem: k.type === 'wand' || k.type === 'spellbook' ? undefined : 'none', name: k.name }));
-    const h = { name: name || C.n, cls, lvl: 1, xp: 0, embers: 0, unlocks: {}, stash: { weapons, relics: [], potions: [] }, load: { w: weapons.map(w => w.uid), relic: null, potion: null }, cleared: 0, corpse: null, shop: null, stats: { runs: 0, deaths: 0, kills: 0, clears: 0 } };
+    const h = { name: name || C.n, cls, lvl: 1, xp: 0, xpv: 2, embers: 0, unlocks: {}, stash: { weapons, relics: [], potions: [] }, load: { w: weapons.map(w => w.uid), relic: null, potion: null }, cleared: 0, corpse: null, shop: null, stats: { runs: 0, deaths: 0, kills: 0, clears: 0 } };
     this.data().slots[i] = h; Meta.save(); return h;
   },
   loadoutWeapons(h) {

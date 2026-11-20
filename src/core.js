@@ -131,8 +131,8 @@ const Input = {
     const w = innerWidth, s = Math.min(w, innerHeight), A = s * 0.115, h = innerHeight - this.badgeH();
     return [
       { id: 'attack', x: w - A * 1.35, y: h - A * 1.35, r: A },
-      { id: 'roll', x: w - A * 3.35, y: h - A * 0.95, r: A * 0.75 },
-      { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.68 },
+      { id: 'roll', x: w - A * 3.5, y: h - A * 1.12, r: A * 0.88 },
+      { id: 'swap', x: w - A * 1.15, y: h - A * 3.3, r: A * 0.8 },
       { id: 'use', x: w - A * 3.05, y: h - A * 2.75, r: A * 0.6 },
       { id: 'potion', x: w - A * 4.95, y: h - A * 0.9, r: A * 0.5 },
       { id: 'relic', x: w - A * 4.75, y: h - A * 2.3, r: A * 0.5 },
