@@ -1,7 +1,7 @@
 // Emberdeep offline cache: always try the network first so updates land,
 // fall back to the last copy when there's no signal (road trips).
-const CACHE = 'emberdeep-v1';
-const CORE = ['./', './index.html', './icon.png', './icon-512.png', './manifest.webmanifest', './vendor/qrcode.min.js', './vendor/jsqr.min.js'];
+const CACHE = 'emberdeep-v2';
+const CORE = ['./', './index.html', './icon.png', './icon-512.png', './manifest.webmanifest', './vendor/qrcode.min.js', './vendor/jsqr.min.js', './vendor/peerjs.min.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', e => {

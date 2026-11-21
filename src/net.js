@@ -5,14 +5,13 @@
 const Net = {
   MAX: 3,
   ICE: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }],
-  SIG: 'wss://0.peerjs.com:443/peerjs',
-  role: null, code: '', ws: null, peers: [], status: '', onMsg: null, onChange: null, hbT: null,
+  role: null, code: '', P: null, peers: [], status: '', onMsg: null, onChange: null,
 
   reset() {
-    for (const p of this.peers) try { p.pc.close(); } catch (e) { }
+    for (const p of this.peers) try { p.pc && p.pc.close(); } catch (e) { }
     this.peers = []; this.role = null; this.code = ''; this.status = '';
-    if (this.ws) try { this.ws.close(); } catch (e) { }
-    this.ws = null; clearInterval(this.hbT);
+    if (this.P) try { this.P.destroy(); } catch (e) { }
+    this.P = null;
   },
   changed() { if (this.onChange) this.onChange(); },
   say(s) { this.status = s; this.changed(); },
@@ -54,70 +53,81 @@ const Net = {
     }
   },
   freeSlot() { for (let s = 1; s < this.MAX; s++) if (!this.peers.some(p => p.slot === s)) return s; return -1; },
-  drop(peer) { try { peer.pc.close(); } catch (e) { } this.peers = this.peers.filter(p => p !== peer); this.changed(); },
+  drop(peer) { try { peer.pc && peer.pc.close(); } catch (e) { } this.peers = this.peers.filter(p => p !== peer); this.changed(); },
 
   // ---------- messages ----------
-  send(peer, m, fast) { const ch = fast ? peer.fast : peer.rel; if (ch.readyState === 'open') try { ch.send(JSON.stringify(m)); } catch (e) { } },
+  send(peer, m, fast) { const ch = fast ? peer.fast : peer.rel; if (ch && ch.readyState === 'open') try { ch.send(JSON.stringify(m)); } catch (e) { } },
   broadcast(m, fast) { for (const p of this.peers) this.send(p, m, fast); },
   handle(peer, m) {
     if (m.t === 'ping') return this.send(peer, { t: 'pong', tm: m.tm });
     if (m.t === 'pong') { peer.rtt = lerp(peer.rtt || (performance.now() - m.tm), performance.now() - m.tm, 0.3); return; }
     if (m.t === 'welcome') { peer.slot = m.slot; this.mySlot = m.slot; this.changed(); }
-    if (m.t === 'full') { this.say('That room is full'); }
+    if (m.t === 'full') { this.say('That room is full (3 players)'); }
     if (this.onMsg) this.onMsg(peer, m);
   },
   pingAll() { for (const p of this.peers) this.send(p, { t: 'ping', tm: performance.now() }); },
 
-  // ---------- online: room codes via the public signaling server ----------
+  // ---------- online: room codes via the public PeerJS server (official client, loaded on demand) ----------
   roomId(code) { return 'emberdeep-room-' + code.toLowerCase(); },
-  sigOpen(id) {
-    return new Promise((res, rej) => {
-      const ws = new WebSocket(`${this.SIG}?key=peerjs&id=${encodeURIComponent(id)}&token=${Math.random().toString(36).slice(2)}`);
-      let done = false;
-      ws.onmessage = e => {
-        let m; try { m = JSON.parse(e.data); } catch (_) { return; }
-        if (m.type === 'OPEN') { done = true; this.ws = ws; this.hbT = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'HEARTBEAT' })); }, 5000); res(ws); }
-        else if (m.type === 'ID-TAKEN') { done = true; rej(new Error('taken')); ws.close(); }
-        else if (m.type === 'ERROR') { if (!done) { done = true; rej(new Error(m.payload && m.payload.msg || 'error')); } }
-        else this.sigMsg(m);
-      };
-      ws.onerror = () => { if (!done) { done = true; rej(new Error('offline')); } };
-      ws.onclose = () => { if (!done) { done = true; rej(new Error('offline')); } };
-      setTimeout(() => { if (!done) { done = true; rej(new Error('timeout')); try { ws.close(); } catch (e) { } } }, 8000);
-    });
+  // wrap a PeerJS DataConnection so it looks like a plain channel
+  chan(conn) { return { get readyState() { return conn.open ? 'open' : 'closed'; }, send: s => conn.send(s) }; },
+  wire(peer, conn, kind) {
+    peer[kind] = this.chan(conn);
+    if (kind === 'rel') peer.pc = conn.peerConnection || peer.pc;
+    conn.on('data', d => { peer.last = performance.now(); let m; try { m = JSON.parse(d); } catch (_) { return; } this.handle(peer, m); });
+    const opened = () => { if (kind === 'rel') { peer.open = true; peer.pc = conn.peerConnection; this.say('Connected'); this.linkType(peer); if (this.role === 'host') this.send(peer, { t: peer.full ? 'full' : 'welcome', slot: peer.slot }); } };
+    if (conn.open) opened(); else conn.on('open', opened);
+    conn.on('close', () => { if (kind === 'rel') { peer.open = false; this.drop(peer); } });
+    conn.on('error', () => { });
   },
-  sigSend(dst, type, payload) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ type, dst, payload })); },
-  async sigMsg(m) {
-    if (this.role === 'host' && m.type === 'OFFER') { // a guest knocking
-      const slot = this.freeSlot();
-      if (slot < 0) { this.sigSend(m.src, 'ANSWER', { full: true }); return; }
-      const peer = this.newPeer(slot); peer.sigId = m.src; this.peers.push(peer); this.changed();
-      const sdp = await this.answer(peer, m.payload.sdp);
-      this.sigSend(m.src, 'ANSWER', { sdp });
-      peer.rel.addEventListener('open', () => this.send(peer, { t: 'welcome', slot }));
-    } else if (this.role === 'guest' && m.type === 'ANSWER') {
-      if (m.payload.full) { this.say('That room is full'); return; }
-      const peer = this.peers[0]; if (peer) await this.accept(peer, m.payload.sdp);
-    } else if (m.type === 'EXPIRE' && this.role === 'guest') this.say('No room with that code');
+  async lib() { await QR.load('vendor/peerjs.min.js', 'Peer'); },
+  makePeer(id) {
+    return new Promise((res, rej) => {
+      const P = id ? new Peer(id, { debug: 0 }) : new Peer({ debug: 0 });
+      const t = setTimeout(() => rej(new Error('timeout')), 9000);
+      P.on('open', () => { clearTimeout(t); res(P); });
+      P.on('error', e => { clearTimeout(t); rej(e); });
+    });
   },
   async host() {
     this.reset(); this.role = 'host'; this.mySlot = 0;
+    try { await this.lib(); } catch (e) { this.say("Couldn't load the matchmaking code. No internet? Use QR codes."); return false; }
     for (let i = 0; i < 6; i++) {
       const code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[(Math.random() * 24) | 0]).join('');
-      try { this.say('Opening a room…'); await this.sigOpen(this.roomId(code)); this.code = code; this.say('Waiting for players'); return true; }
-      catch (e) { if (e.message !== 'taken') { this.say("Couldn't reach the matchmaking server. No internet? Use QR codes."); return false; } }
+      this.say('Opening a room…');
+      try { this.P = await this.makePeer(this.roomId(code)); }
+      catch (e) { if (e.type === 'unavailable-id') continue; this.say("Couldn't reach the matchmaking server. No internet? Use QR codes."); return false; }
+      this.code = code; this.say('Waiting for players');
+      this.P.on('error', () => { });
+      this.P.on('connection', conn => {
+        const md = conn.metadata || {}, gid = conn.peer;
+        let peer = this.peers.find(p => p.gid === gid);
+        if (!peer) {
+          const slot = this.freeSlot();
+          peer = { gid, slot: slot < 0 ? -1 : slot, full: slot < 0, rtt: 0, link: '…', open: false, last: performance.now(), pc: conn.peerConnection };
+          if (!peer.full) this.peers.push(peer);
+        }
+        if (peer.full) { conn.on('open', () => { conn.send(JSON.stringify({ t: 'full' })); setTimeout(() => conn.close(), 500); }); return; }
+        this.wire(peer, conn, md.ch === 'fast' ? 'fast' : 'rel');
+        this.changed();
+      });
+      return true;
     }
-    return false;
+    this.say("Couldn't open a room. Try again?"); return false;
   },
   async join(code) {
     this.reset(); this.role = 'guest'; this.code = code.toUpperCase();
-    try { this.say('Connecting…'); await this.sigOpen('emberdeep-guest-' + Math.random().toString(36).slice(2, 10)); }
+    try { await this.lib(); this.say('Connecting…'); this.P = await this.makePeer(null); }
     catch (e) { this.say("Couldn't reach the matchmaking server. No internet? Use QR codes."); return false; }
-    const peer = this.newPeer(0); this.peers.push(peer);
+    this.P.on('error', e => { if (e.type === 'peer-unavailable') this.say('No room with code ' + this.code); });
+    const peer = { slot: 0, rtt: 0, link: '…', open: false, last: performance.now() };
+    peer.fast = { readyState: 'closed', send() { } };
+    this.peers.push(peer);
     this.say('Finding room ' + this.code + '…');
-    const sdp = await this.offer(peer);
-    this.sigSend(this.roomId(this.code), 'OFFER', { sdp });
-    setTimeout(() => { if (!peer.open && this.role === 'guest' && this.peers[0] === peer) this.say('No answer from room ' + this.code + '. Check the code?'); }, 12000);
+    const dst = this.roomId(this.code);
+    this.wire(peer, this.P.connect(dst, { reliable: true, serialization: 'raw', metadata: { ch: 'rel' } }), 'rel');
+    this.wire(peer, this.P.connect(dst, { reliable: false, serialization: 'raw', metadata: { ch: 'fast' } }), 'fast');
+    setTimeout(() => { if (!peer.open && this.role === 'guest' && this.peers[0] === peer && !/No room|full/.test(this.status)) this.say('No answer from room ' + this.code + '. Check the code?'); }, 12000);
     return true;
   },
 
