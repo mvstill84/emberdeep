@@ -1,5 +1,6 @@
 // ===== Boot =====
 Dev.init(); Meta.load();
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 Render.init();
 Input.init(Render.cv);
 Menu.el = document.getElementById('menu');

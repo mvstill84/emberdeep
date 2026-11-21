@@ -393,11 +393,13 @@ const Menu = {
         <div class="sub" style="margin:-4px 0 10px;font-size:13px">Pick a class, dive in, see how far you get. Nothing carries over.</div>
         <div class="row"><button class="btn small" id="b-seed">Quick Play a Seed</button><button class="btn small" id="b-saved">Saved Seeds</button></div>
         <button class="btn small" id="b-sanct">Quick-play Sanctum · <span class="ember">${M.embers}</span></button>
+        <button class="btn small" id="b-coop">Co-op Test (beta)</button>
         <div class="row"><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button><button class="btn small" id="b-data">Save Data</button></div>
         ${Dev.on ? '<button class="btn small" id="b-dev" style="border-color:#ff6bd5;color:#ffb0ec">Developer Mode</button>' : ''}
         <div class="hint">${ctrl}</div><div class="hint" style="margin-top:8px">Build ${BUILD}${Dev.on ? ' · <span style="color:#ff6bd5">DEV SANDBOX</span>' : ''}</div>`);
       this.on('b-data', () => this.show('data'));
       this.on('b-dev', () => Dev.menu());
+      this.on('b-coop', () => NetTest.home());
       this.on('b-camp', () => this.show('camp'));
       this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
