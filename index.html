@@ -29,6 +29,8 @@ h2{font-size:28px;margin-bottom:14px;color:#ffcf8a}
 .btn:disabled{opacity:.4;cursor:default;box-shadow:none;border-color:#3a2f60}
 .code{display:block;width:100%;height:84px;margin:8px 0;padding:10px;font:12px ui-monospace,Menlo,monospace;color:#e8dcff;background:#120c24;border:1px solid #5b47a0;border-radius:10px;resize:none;word-break:break-all;-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
 .dsec{margin:18px 0 6px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;font-size:12px;color:#ffb0ec;text-align:left}.drow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0;font-size:14px}.dsel,.dnum{font:inherit;font-size:14px;color:#f4eeff;background:#1c1436;border:1px solid #5b47a0;border-radius:8px;padding:7px 8px}.dnum{width:64px}.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 10px;text-align:left;font-size:14px}.dchk{display:flex;gap:6px;align-items:center;cursor:pointer}
+@media (max-height:560px){.qrwrap{display:flex;gap:18px;align-items:center;text-align:left}.qrwrap h2{margin-top:0}#menu canvas.qrc{max-height:calc(100vh - 40px)!important;margin:0!important}}
+#menu canvas.qrc{image-rendering:pixelated;position:static;display:block;margin:10px auto;width:auto;height:auto;max-width:100%;max-height:calc(100vh - 170px);background:#fff;border-radius:10px;inset:auto}
 .row{display:flex;gap:10px}.row .btn{flex:1}
 input.seed{width:100%;padding:14px;font:inherit;font-size:24px;letter-spacing:.15em;text-align:center;text-transform:uppercase;background:#140e26;color:#ffe2b0;border:1px solid #5b47a0;border-radius:12px;outline:none}
 input.seed:focus{border-color:#ffb057}
@@ -53,7 +55,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 21;
+const BUILD = 22;
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -4476,7 +4478,7 @@ const QR = {
   async draw(canvas, text) {
     await this.load('vendor/qrcode.min.js', 'qrcode');
     const q = qrcode(0, 'L'); q.addData(text); q.make();
-    const n = q.getModuleCount(), px = Math.max(3, Math.floor(Math.min(320, innerWidth - 60, innerHeight - 140) / (n + 8))), sz = (n + 8) * px;
+    const n = q.getModuleCount(), px = 6, sz = (n + 8) * px;
     canvas.width = canvas.height = sz; const c = canvas.getContext('2d');
     c.fillStyle = '#fff'; c.fillRect(0, 0, sz, sz); c.fillStyle = '#000';
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (q.isDark(y, x)) c.fillRect((x + 4) * px, (y + 4) * px, px, px);
@@ -4531,8 +4533,8 @@ const NetTest = {
 
   // ---------- QR flows ----------
   async qrInvite() {
-    Menu.html(`<h2>Invite a player</h2><div class="sub" id="q-sub">Making a code…</div><canvas id="q-cv" style="background:#fff;border-radius:10px;max-width:100%"></canvas>
-      <button class="btn" id="q-scan">They scanned it. Scan their reply</button><button class="btn small" id="q-back">Back to the arena</button>`);
+    Menu.html(`<div class="qrwrap"><canvas id="q-cv" class="qrc"></canvas><div><h2>Invite a player</h2><div class="sub" id="q-sub">Making a code…</div>
+      <button class="btn" id="q-scan">They scanned it. Scan their reply</button><button class="btn small" id="q-back">Back to the arena</button></div></div>`);
     const code = await Net.qrInvite();
     if (!code) { document.getElementById('q-sub').textContent = 'The room is full (3 players).'; }
     else { document.getElementById('q-sub').textContent = 'On the other device: Co-op Test → Join with QR, then scan this.'; await QR.draw(document.getElementById('q-cv'), code); }
@@ -4542,13 +4544,13 @@ const NetTest = {
   qrJoin() { this.qrScan("Scan the host's invite code", async s => {
     const reply = await Net.qrReply(s);
     if (!reply) { this.home(); return; }
-    Menu.html(`<h2>Show this to the host</h2><div class="sub">The host taps "Scan their reply" and points their camera here. You'll drop into the arena once it connects.</div><canvas id="q-cv" style="background:#fff;border-radius:10px;max-width:100%"></canvas><button class="btn small" id="q-back">Cancel</button>`);
+    Menu.html(`<div class="qrwrap"><canvas id="q-cv" class="qrc"></canvas><div><h2>Show this to the host</h2><div class="sub">The host taps "Scan their reply" and points their camera here. You'll drop into the arena once it connects.</div><button class="btn small" id="q-back">Cancel</button></div></div>`);
     await QR.draw(document.getElementById('q-cv'), reply);
     Menu.on('q-back', () => this.home());
     const wait = setInterval(() => { if (!Net.peers[0]) return clearInterval(wait); if (Net.peers[0].open) { clearInterval(wait); this.arena(); } }, 200);
   }); },
   qrScan(title, onText) {
-    Menu.html(`<h2>${title}</h2><video id="q-vid" style="width:100%;max-width:420px;border-radius:12px;background:#000"></video><div class="sub" id="q-sub">Starting the camera…</div><button class="btn small" id="q-back">Cancel</button>`);
+    Menu.html(`<h2>${title}</h2><video id="q-vid" style="width:100%;max-width:420px;max-height:calc(100vh - 150px);border-radius:12px;background:#000"></video><div class="sub" id="q-sub">Starting the camera…</div><button class="btn small" id="q-back">Cancel</button>`);
     Menu.on('q-back', () => { QR.stop(); Net.role === 'host' ? this.arena() : this.home(); });
     QR.scan(document.getElementById('q-vid'), onText).then(() => { const s = document.getElementById('q-sub'); if (s) s.textContent = 'Hold the code steady in view.'; })
       .catch(e => { const s = document.getElementById('q-sub'); if (s) s.textContent = "Couldn't open the camera: " + e.message; });

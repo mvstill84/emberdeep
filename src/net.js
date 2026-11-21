@@ -175,7 +175,7 @@ const QR = {
   async draw(canvas, text) {
     await this.load('vendor/qrcode.min.js', 'qrcode');
     const q = qrcode(0, 'L'); q.addData(text); q.make();
-    const n = q.getModuleCount(), px = Math.max(3, Math.floor(Math.min(320, innerWidth - 60, innerHeight - 140) / (n + 8))), sz = (n + 8) * px;
+    const n = q.getModuleCount(), px = 6, sz = (n + 8) * px;
     canvas.width = canvas.height = sz; const c = canvas.getContext('2d');
     c.fillStyle = '#fff'; c.fillRect(0, 0, sz, sz); c.fillStyle = '#000';
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (q.isDark(y, x)) c.fillRect((x + 4) * px, (y + 4) * px, px, px);

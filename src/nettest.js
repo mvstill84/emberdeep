@@ -27,8 +27,8 @@ const NetTest = {
 
   // ---------- QR flows ----------
   async qrInvite() {
-    Menu.html(`<h2>Invite a player</h2><div class="sub" id="q-sub">Making a code…</div><canvas id="q-cv" style="background:#fff;border-radius:10px;max-width:100%"></canvas>
-      <button class="btn" id="q-scan">They scanned it. Scan their reply</button><button class="btn small" id="q-back">Back to the arena</button>`);
+    Menu.html(`<div class="qrwrap"><canvas id="q-cv" class="qrc"></canvas><div><h2>Invite a player</h2><div class="sub" id="q-sub">Making a code…</div>
+      <button class="btn" id="q-scan">They scanned it. Scan their reply</button><button class="btn small" id="q-back">Back to the arena</button></div></div>`);
     const code = await Net.qrInvite();
     if (!code) { document.getElementById('q-sub').textContent = 'The room is full (3 players).'; }
     else { document.getElementById('q-sub').textContent = 'On the other device: Co-op Test → Join with QR, then scan this.'; await QR.draw(document.getElementById('q-cv'), code); }
@@ -38,13 +38,13 @@ const NetTest = {
   qrJoin() { this.qrScan("Scan the host's invite code", async s => {
     const reply = await Net.qrReply(s);
     if (!reply) { this.home(); return; }
-    Menu.html(`<h2>Show this to the host</h2><div class="sub">The host taps "Scan their reply" and points their camera here. You'll drop into the arena once it connects.</div><canvas id="q-cv" style="background:#fff;border-radius:10px;max-width:100%"></canvas><button class="btn small" id="q-back">Cancel</button>`);
+    Menu.html(`<div class="qrwrap"><canvas id="q-cv" class="qrc"></canvas><div><h2>Show this to the host</h2><div class="sub">The host taps "Scan their reply" and points their camera here. You'll drop into the arena once it connects.</div><button class="btn small" id="q-back">Cancel</button></div></div>`);
     await QR.draw(document.getElementById('q-cv'), reply);
     Menu.on('q-back', () => this.home());
     const wait = setInterval(() => { if (!Net.peers[0]) return clearInterval(wait); if (Net.peers[0].open) { clearInterval(wait); this.arena(); } }, 200);
   }); },
   qrScan(title, onText) {
-    Menu.html(`<h2>${title}</h2><video id="q-vid" style="width:100%;max-width:420px;border-radius:12px;background:#000"></video><div class="sub" id="q-sub">Starting the camera…</div><button class="btn small" id="q-back">Cancel</button>`);
+    Menu.html(`<h2>${title}</h2><video id="q-vid" style="width:100%;max-width:420px;max-height:calc(100vh - 150px);border-radius:12px;background:#000"></video><div class="sub" id="q-sub">Starting the camera…</div><button class="btn small" id="q-back">Cancel</button>`);
     Menu.on('q-back', () => { QR.stop(); Net.role === 'host' ? this.arena() : this.home(); });
     QR.scan(document.getElementById('q-vid'), onText).then(() => { const s = document.getElementById('q-sub'); if (s) s.textContent = 'Hold the code steady in view.'; })
       .catch(e => { const s = document.getElementById('q-sub'); if (s) s.textContent = "Couldn't open the camera: " + e.message; });
