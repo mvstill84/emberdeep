@@ -1,4 +1,5 @@
 'use strict';
+const PCOL = ['#ffb057', '#6fd3ff', '#c38cff']; // player colors in co-op
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -88,6 +89,7 @@ const Meta = {
     return null;
   },
   has(id) { // campaign heroes have their own Sanctum
+    if (this.over) return !!this.over[id]; // co-op: building another player's hero with their unlocks
     const u = typeof Game !== 'undefined' && Game.mode === 'campaign' && Game.char ? Game.char.unlocks : this.data.unlocks;
     return !!u[id];
   },
@@ -180,6 +182,7 @@ const Input = {
   pads() { return navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []; },
   // Read one player's controls. src: 'auto' follows the last-used device (solo); 'pad0'.. for co-op later.
   read(src, player) {
+    if (src && src.startsWith('net')) return Coop.netInput(+src.slice(3));
     const out = { mx: 0, my: 0, aim: null, attack: false, roll: false, swap: false, use: false, potion: false, relic: false, device: 'kb' };
     let dev = src;
     if (src === 'auto') {

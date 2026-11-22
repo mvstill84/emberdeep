@@ -22,7 +22,7 @@ const Dev = {
   },
   exit() { try { localStorage.removeItem('emberdeep.devmode'); } catch (e) { } location.reload(); },
   resetSandbox() { try { localStorage.setItem('emberdeep.dev', localStorage.getItem('emberdeep.v1') || '{}'); } catch (e) { } location.reload(); },
-  active(k) { return this.on && this.opt[k]; },
+  active(k) { return this.on && this.opt[k] && !(typeof Coop !== 'undefined' && Coop.on); }, // dev cheats are solo only
 
   weapon(s) {
     const w = makeWeapon(RNG((Math.random() * 1e9) | 0), { type: s.type, rarity: +s.rarity, elem: s.elem || undefined, spell: s.spell || undefined });
@@ -134,7 +134,7 @@ const Dev = {
   },
   // the dev panel on the pause screen
   pausePanel() {
-    if (!this.on) return '';
+    if (!this.on || Coop.on) return '';
     this.pw = this.pw || { type: 'axe', rarity: 3, elem: '', spell: '' };
     const foes = Object.keys(EDEF).filter(k => !['crystal', 'banner', 'boss'].includes(k));
     return `<div class="dsec" style="color:#ff6bd5">Developer</div>
@@ -147,7 +147,7 @@ const Dev = {
       ${this.toggles()}`;
   },
   bindPause() {
-    if (!this.on) return;
+    if (!this.on || Coop.on) return;
     const p = World.players[0], again = () => Menu.show('pause');
     Menu.on('dv-kill', () => { this.killRoom(); Game.togglePause(); });
     Menu.on('dv-boss', () => { this.killBoss(); Game.togglePause(); });

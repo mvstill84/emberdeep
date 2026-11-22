@@ -2,7 +2,7 @@
 const HUD = {
   u: 1,
   draw(c, dt) {
-    const p = World.players[0];
+    const p = World.meP();
     c.setTransform(Render.dpr, 0, 0, Render.dpr, 0, 0);
     if (Input.last === 'touch') this.touch(c, innerWidth, innerHeight);
     const u = this.u = clamp(Math.min(innerWidth, innerHeight) / 620, 0.6, 1), s = Render.dpr * u, W = innerWidth / u, H = innerHeight / u;
@@ -62,6 +62,7 @@ const HUD = {
     if (swapY && !tch) { c.textAlign = 'center'; c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', W / 2, swapY); }
     this.minimap(c, W, pad, font);
     Dev.drawHud(c, W, H, font, dt);
+    Coop.drawHold(c, W, H, font);
     // boss bar
     const b = World.boss;
     if (b && b.spawnT <= 0) {
@@ -240,7 +241,7 @@ const HUD = {
       if (st) { const v = Input.stickVec(st, max); c.fillStyle = 'rgba(255,200,140,0.45)'; c.beginPath(); c.arc(x + v.x * max, y + v.y * max, max * 0.42, 0, TAU); c.fill(); }
     };
     stick(Input.sticks.L, W * 0.16, H * 0.62); if (Input.sticks.R) stick(Input.sticks.R);
-    const p = World.players[0], w = p.weapons[p.wi];
+    const p = World.meP(), w = p.weapons[p.wi];
     for (const b of Input.touchButtons()) {
       if (b.id === 'use' && !World.near) continue;
       if (b.id === 'bag' && !World.canBag()) continue;
@@ -359,10 +360,12 @@ const Game = {
     if (this.state === 'play') {
       if (Dev.on && Dev.opt.speed !== 1) dt *= Dev.opt.speed;
       rdt = dt;
+      if (Coop.on && Coop.inRun && !Coop.host) { Coop.guestStep(dt); Render.draw(dt); return; } // guests just draw what the host sends
       if (this.hs > 0) { this.hs -= dt; rdt = dt * 0.15; }
       else { World.update(dt); this.runTime += dt; }
       if (this.deadT > 0) { this.deadT -= dt; if (this.deadT <= 0) this.end(false); }
-    }
+    } else if (Coop.on && Coop.inRun && !Coop.host && World.map) { Coop.guestStep(dt); Render.draw(0); return; }
+    Coop.hostTick(dt);
     if (World.map) Render.draw(rdt); else Menu.drawBg(dt);
   },
 };
@@ -386,6 +389,7 @@ const Menu = {
       : 'WASD move · Mouse aim · Click attack (hold to draw a bow) · Space or right-click roll · Q swap · E take · R potion · F relic · Esc pause · M mute<br>Attack right after a roll to lunge. Every melee swing cuts shots out of the air.';
     if (name === 'title') {
       Game.state = 'menu'; Game.mode = 'quick'; Game.char = null;
+      if (Coop.on && !Coop.inRun) Coop.reset();
       this.html(`<h1>EMBERDEEP</h1><div class="sub">A tiny procedural dungeon. Every seed is a different descent.</div>
         <button class="btn" id="b-camp">Campaign</button>
         <div class="sub" style="margin:-4px 0 10px;font-size:13px">One hero, a stash of gear, worlds to conquer. Gear is the gate.</div>
@@ -393,13 +397,13 @@ const Menu = {
         <div class="sub" style="margin:-4px 0 10px;font-size:13px">Pick a class, dive in, see how far you get. Nothing carries over.</div>
         <div class="row"><button class="btn small" id="b-seed">Quick Play a Seed</button><button class="btn small" id="b-saved">Saved Seeds</button></div>
         <button class="btn small" id="b-sanct">Quick-play Sanctum · <span class="ember">${M.embers}</span></button>
-        <button class="btn small" id="b-coop">Co-op Test (beta)</button>
+        <button class="btn small" id="b-coop">Co-op (beta)</button>
         <div class="row"><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button><button class="btn small" id="b-data">Save Data</button></div>
         ${Dev.on ? '<button class="btn small" id="b-dev" style="border-color:#ff6bd5;color:#ffb0ec">Developer Mode</button>' : ''}
         <div class="hint">${ctrl}</div><div class="hint" style="margin-top:8px">Build ${BUILD}${Dev.on ? ' · <span style="color:#ff6bd5">DEV SANDBOX</span>' : ''}</div>`);
       this.on('b-data', () => this.show('data'));
       this.on('b-dev', () => Dev.menu());
-      this.on('b-coop', () => NetTest.home());
+      this.on('b-coop', () => Coop.home());
       this.on('b-camp', () => this.show('camp'));
       this.on('b-new', () => this.show('class'));
       this.on('b-seed', () => this.show('seed'));
@@ -490,23 +494,24 @@ const Menu = {
       for (const u of UNLOCKS.filter(u => !u.camp)) this.on('u-' + u.id, () => { if (M.embers >= u.cost) { M.embers -= u.cost; M.unlocks[u.id] = 1; Meta.save(); Snd.play('item'); this.show('sanctum'); } });
       this.on('b-back', () => this.show('title'));
     } else if (name === 'pause') {
-      const p = World.players[0];
+      const p = World.meP();
       const items = p.items.map(id => ITEMS.find(x => x.id === id)).map((it, i) => `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}</b><small>${it.d}</small></div><button class="btn" id="drop-${i}">Drop</button></div>`).join('');
       const syn = p.syn.map(id => SYNERGIES.find(s => s.id === id)).map(s => `<div class="card"><div class="grow"><b class="secret">✦ ${s.n}</b><small>${s.d}</small></div></div>`).join('');
-      this.html(`<h2>Paused</h2><div class="sub"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
+      this.html(`<h2>Paused${Coop.on && Coop.pausedBy ? ' by ' + Coop.pausedBy : ''}</h2><div class="sub"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
         <div class="stats" style="grid-template-columns:auto auto auto auto;max-width:540px;font-size:14px">${statBlock(p)}</div>
         <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>${bagHtml()}
         <button class="btn" id="b-res">Resume</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button></div>
-        <button class="btn small" id="b-quit">Abandon Run</button>${Dev.pausePanel()}`);
+        ${Coop.on && Coop.host && NetTest.qrMode ? '<button class="btn small" id="b-qinv">Invite a player (QR)</button>' : ''}<button class="btn small" id="b-quit">${Coop.on && !Coop.host ? 'Leave Game' : Coop.on ? 'End Run for Everyone' : 'Abandon Run'}</button>${Dev.pausePanel()}`);
       Dev.bindPause();
       this.on('b-res', () => Game.togglePause());
-      p.items.forEach((id, i) => this.on('drop-' + i, () => { World.dropItem(p, i); this.show('pause'); }));
+      p.items.forEach((id, i) => this.on('drop-' + i, () => { if (Coop.on && !Coop.host) { Net.send(Net.peers[0], { t: 'drop', i }); p.items.splice(i, 1); } else World.dropItem(p, i); this.show('pause'); }));
       this.on('b-save', () => { Game.saveSeed(); document.getElementById('b-save').textContent = 'Saved ✓'; });
       this.on('b-mute', () => { Snd.setMuted(!M.muted); document.getElementById('b-mute').textContent = M.muted ? 'Sound: Off' : 'Sound: On'; });
-      this.on('b-quit', () => { Game.end(false); });
+      this.on('b-qinv', () => { NetTest.onDone = () => this.show('pause'); NetTest.qrInvite(); });
+      this.on('b-quit', () => { if (Coop.on && !Coop.host) { Coop.reset(); World.map = null; this.show('title'); } else Game.end(false); });
     } else if (name === 'dead' || name === 'win') {
-      const p = World.players[0], won = name === 'win';
+      const p = World.meP(), won = name === 'win';
       this.html(`<h1 style="font-size:clamp(36px,7vw,60px)">${won ? 'ESCAPED' : 'FALLEN'}</h1>
         <div class="sub">${won ? 'You climbed out of the deep. It will be waiting.' : `Lost on level ${levelLabel(World.world, World.level)}, ${World.theme.n}.`}</div>
         <div class="stats"><span>Class</span><span>${CLASSES[Game.cls].n}</span><span>Seed</span><span>${Game.seed}</span><span>Level reached</span><span>${levelLabel(World.world, World.level)}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span><span>Foes slain</span><span>${p.kills}</span><span>Items</span><span>${p.items.length}</span><span>Embers banked</span><span class="ember">+${Game.runEmbers}</span></div>

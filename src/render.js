@@ -15,7 +15,7 @@ const Render = {
   screenToWorld(sx, sy) { return { x: (sx * this.dpr - this.W / 2) / this.z + this.cam.x, y: (sy * this.dpr - this.H / 2) / this.z + this.cam.y }; },
   worldToScreen(x, y) { return { x: ((x - this.cam.x) * this.z + this.W / 2) / this.dpr, y: ((y - this.cam.y) * this.z + this.H / 2) / this.dpr }; },
   camTarget() {
-    const p = World.players[0]; let x = p.x, y = p.y;
+    const p = World.meP(); if (!p) return { x: this.cam.x, y: this.cam.y }; let x = p.x, y = p.y;
     if (p.inp && p.inp.device === 'kb') { const m = this.screenToWorld(Input.mouse.x, Input.mouse.y); x += clamp((m.x - p.x) * 0.18, -70, 70); y += clamp((m.y - p.y) * 0.18, -60, 60); }
     else { x += Math.cos(p.aim) * 30; y += Math.sin(p.aim) * 30; }
     const tx = p.x / T, ty = p.y / T;
@@ -62,7 +62,7 @@ const Render = {
       for (let i = 0; i < 4; i++) { c.rotate(TAU / 4); c.beginPath(); c.arc(0, 0, rr, -0.45, 0.45); c.stroke(); c.beginPath(); c.moveTo(rr - 4, 0); c.lineTo(rr + 5, 0); c.stroke(); }
       c.restore(); }
     this.allies();
-    for (const p of World.players) if (!p.dead) this.player(p);
+    for (const p of World.players) if (!p.dead && !p.inPortal && !p.gone) this.player(p);
     this.fx();
     Dev.drawWorld(c);
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -265,7 +265,7 @@ const Render = {
   hazards() {
     this.traps();
     const c = this.c;
-    const pl = World.players[0];
+    const pl = World.meP();
     if (pl && pl.salvT > 0 && pl.salvK && !pl.salvK.gone) { // salvage progress ring
       const k = pl.salvK; c.strokeStyle = '#ffb057'; c.lineWidth = 3; c.beginPath(); c.arc(k.x, k.y, 22, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(pl.salvT / 0.5, 0, 1)); c.stroke();
     }
@@ -359,6 +359,20 @@ const Render = {
 
   player(p) {
     const c = this.c, w = p.weapons[p.wi];
+    if (World.players.length > 1) { // co-op: colored ring and tag so you can tell who's who
+      const col = PCOL[p.slot] || '#fff', me = p === World.meP();
+      c.strokeStyle = hexA(col, 0.8); c.lineWidth = 2; c.beginPath(); c.ellipse(p.x, p.y + 8, 13, 5.5, 0, 0, TAU); c.stroke();
+      if (!me) { c.fillStyle = col; c.font = '800 10px system-ui'; c.textAlign = 'center'; c.fillText('P' + (p.slot + 1), p.x, p.y - 24); }
+    }
+    if (p.downed) { // flat on the floor; a ring fills while a friend revives you
+      c.save(); c.globalAlpha = 0.55; c.translate(p.x, p.y); c.fillStyle = CLASSES[p.cls] ? CLASSES[p.cls].c || '#ffe2b0' : '#ffe2b0';
+      c.beginPath(); c.ellipse(0, 2, 12, 7, 0, 0, TAU); c.fill(); c.restore();
+      const k = clamp((p.reviveT || 0) / 3, 0, 1);
+      c.strokeStyle = 'rgba(255,255,255,0.25)'; c.lineWidth = 3; c.beginPath(); c.arc(p.x, p.y, 22, 0, TAU); c.stroke();
+      if (k > 0) { c.strokeStyle = '#9fe38a'; c.beginPath(); c.arc(p.x, p.y, 22, -Math.PI / 2, -Math.PI / 2 + TAU * k); c.stroke(); }
+      c.fillStyle = '#ff8a8a'; c.font = '800 11px system-ui'; c.textAlign = 'center'; c.fillText(k > 0 ? 'Reviving…' : 'Down! Stand close to revive', p.x, p.y - 28);
+      return;
+    }
     if (p.inv > 0 && p.roll <= 0 && Math.floor(p.inv * 14) % 2) return;
     c.globalCompositeOperation = 'lighter'; this.drawGlow('#ffe2b0', p.x, p.y, 38, 0.35); c.globalCompositeOperation = 'source-over';
     c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(p.x, p.y + 8, 9, 4, 0, 0, TAU); c.fill();
@@ -432,7 +446,7 @@ const Render = {
     const col = e.flash > 0 ? '#ffffff' : e.freeze > 0 ? '#bfefff' : e.burn > 0 && Math.sin(World.time * 14 + e.x) > -0.2 ? '#ffa860' : e.D.c;
     c.globalCompositeOperation = 'lighter'; this.drawGlow(e.D.c, e.x, e.y, e.r * 2.6, e.boss ? 0.5 : 0.28); c.globalCompositeOperation = 'source-over';
     c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(e.x, e.y + e.r * 0.8, e.r, e.r * 0.4, 0, 0, TAU); c.fill();
-    const p = World.players[0], toP = Math.atan2(p.y - e.y, p.x - e.x), r = e.r;
+    const p = World.nearestP(e.x, e.y) || World.players[0], toP = Math.atan2(p.y - e.y, p.x - e.x), r = e.r;
     if (e.boss) { // rotating rune ring marks a boss
       c.globalCompositeOperation = 'lighter'; c.strokeStyle = hexA(e.D.c, 0.55); c.lineWidth = 2;
       for (let i = 0; i < 8; i++) { const a = i * TAU / 8 + (e.spin || 0) * 0.6; c.beginPath(); c.arc(e.x + Math.cos(a) * r * 1.5, e.y + Math.sin(a) * r * 1.5, 4, 0, TAU); c.stroke(); }
