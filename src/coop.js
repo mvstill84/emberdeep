@@ -50,7 +50,7 @@ const Coop = {
     Net.onChange = () => this.guestPeersChanged();
   },
   myUnl() { return Object.assign({}, Meta.data.unlocks); },
-  classOk(cls, unl) { return cls === 'fighter' || !!(unl || {})[cls]; },
+  classOk(cls, unl) { return !!CLASSES[cls]; }, // every class is open in co-op, so nobody gets locked out by the no-repeats rule
 
   // ---------- lobby ----------
   lobbyScreen() {
@@ -67,7 +67,7 @@ const Coop = {
     const taken = new Set(this.lobby.filter(l => l.slot !== this.slot && l.cls).map(l => l.cls));
     const unl = this.myUnl();
     const picks = connected ? Object.keys(CLASSES).map(k => {
-      const lock = !this.classOk(k, unl), tk = taken.has(k), sel = me && me.cls === k;
+      const lock = false, tk = taken.has(k), sel = me && me.cls === k;
       return `<button class="btn small" id="cl-${k}" ${lock || tk ? 'disabled' : ''} style="${sel ? 'border-color:' + PCOL[this.slot] + ';color:#fff' : ''}">${CLASSES[k].n}${tk ? ' · taken' : lock ? ' · locked' : ''}</button>`;
     }).join('') : '';
     const ready = this.lobby.length > 0 && this.lobby.every(l => l.cls);
