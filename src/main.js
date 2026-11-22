@@ -304,7 +304,7 @@ const Game = {
     if (!opts.campaign) this.char = null;
     this.diff = this.DIFF[this.mode];
     this.cls = cls || Meta.data.lastClass || 'fighter';
-    if (this.mode === 'quick') { if (this.cls !== 'fighter' && !Meta.has(this.cls) && !Dev.on) this.cls = 'fighter'; Meta.data.lastClass = this.cls; }
+    if (this.mode === 'quick') { if (this.cls !== 'fighter' && !Meta.has(this.cls) && !Dev.on && !(Coop.on && Coop.host)) this.cls = 'fighter'; Meta.data.lastClass = this.cls; }
     this.seed = normSeed(seedStr) || randomSeed();
     this.seedNum = strHash(this.seed);
     const sec = this.mode === 'quick' ? SECRETS[this.seedNum] : null;

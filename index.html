@@ -55,7 +55,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 24;
+const BUILD = 25;
 const PCOL = ['#ffb057', '#6fd3ff', '#c38cff']; // player colors in co-op
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
@@ -3698,7 +3698,7 @@ const Game = {
     if (!opts.campaign) this.char = null;
     this.diff = this.DIFF[this.mode];
     this.cls = cls || Meta.data.lastClass || 'fighter';
-    if (this.mode === 'quick') { if (this.cls !== 'fighter' && !Meta.has(this.cls) && !Dev.on) this.cls = 'fighter'; Meta.data.lastClass = this.cls; }
+    if (this.mode === 'quick') { if (this.cls !== 'fighter' && !Meta.has(this.cls) && !Dev.on && !(Coop.on && Coop.host)) this.cls = 'fighter'; Meta.data.lastClass = this.cls; }
     this.seed = normSeed(seedStr) || randomSeed();
     this.seedNum = strHash(this.seed);
     const sec = this.mode === 'quick' ? SECRETS[this.seedNum] : null;
