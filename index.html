@@ -55,7 +55,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 25;
+const BUILD = 26;
 const PCOL = ['#ffb057', '#6fd3ff', '#c38cff']; // player colors in co-op
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
@@ -438,10 +438,10 @@ const SPELLS = {
   missiles: { n: 'Magic Missile', elem: 'arcane', dmg: [8, 10], cd: [1.8, 2.2], d: 'Five seeking darts' },
 };
 const QUIRKS = [
-  { id: 'twin', n: 'Twin', suf: 'of Pairs', d: 'Fires an extra projectile', t: ['bow', 'crossbow', 'wand', 'staff'] },
-  { id: 'echo', n: 'Echoing', suf: 'of Echoes', d: 'Every swing strikes twice', t: ['sword', 'axe', 'spear'] },
+  { id: 'twin', n: 'Twin', suf: 'of Pairs', d: 'Fires a second, weaker projectile', t: ['bow', 'crossbow', 'wand', 'staff'] },
+  { id: 'echo', n: 'Echoing', suf: 'of Echoes', d: 'Every swing strikes again, weaker', t: ['sword', 'axe', 'spear'] },
   { id: 'swift', n: 'Swift', suf: 'of Haste', d: '+30% attack speed', t: Object.keys(WBASE) },
-  { id: 'heavy', n: 'Heavy', suf: 'of Ruin', d: '+50% damage, slower', t: Object.keys(WBASE) },
+  { id: 'heavy', n: 'Heavy', suf: 'of Ruin', d: '+35% damage, slower', t: Object.keys(WBASE) },
   { id: 'seeking', n: 'Seeking', suf: 'of the Hunt', d: 'Shots curve toward foes', t: ['bow', 'crossbow', 'wand', 'staff', 'spellbook'] },
   { id: 'wave', n: 'Crescent', suf: 'of the Moon', d: 'Swings launch a crescent wave', t: ['sword', 'axe'] },
   { id: 'pierce', n: 'Piercing', suf: 'of Lances', d: 'Shots pierce one more foe', t: ['bow', 'wand', 'staff'] },
@@ -459,7 +459,8 @@ function properName(rng, n = 2) {
 // Rarity odds by depth (1-9) and source. Legendary is gated to later worlds and bosses.
 function rollRarity(rng, depth, src = 'room') {
   const d = depth;
-  const w = [Math.max(20, 60 - 3 * d), 28 + d, 9 + 2 * d, d <= 1 ? 0.6 : 1 + 1.4 * (d - 1), d < 4 ? 0 : 0.25 * (d - 3)];
+  // gray fades fast: by the second level of a run Uncommon is as likely, and mostly takes over after that
+  const w = [Math.max(8, 50 - 14 * (d - 1)), 30 + 3 * d, 6 + 2.2 * d, d <= 1 ? 0.6 : 0.8 + 1.1 * (d - 1), d < 4 ? 0 : 0.25 * (d - 3)];
   if (src === 'boss') { w[0] *= 0.4; w[3] += 6; if (d >= 3) w[4] += 2 + d * 0.6; }
   if (src === 'armory') { w[0] = 0; w[2] += 6; }
   if (src === 'chest') { w[0] = 0; w[3] += 3; if (d >= 4) w[4] += 0.6; }
@@ -499,7 +500,9 @@ function makeWeapon(rng, opts = {}) {
   const nq = rar >= 4 ? 2 : rar === 3 ? (rng.chance(0.5) ? 2 : 1) : rar === 2 ? 1 : rar === 1 ? (rng.chance(0.4) ? 1 : 0) : 0;
   const pool = rng.shuffle(QUIRKS.filter(q => q.t.includes(type)));
   for (let i = 0; i < nq && i < pool.length; i++) w.quirks.push(pool[i].id);
-  if (w.quirks.includes('heavy')) { w.dmg *= 1.5; w.cd *= 1.35; }
+  if (w.quirks.includes('heavy')) { w.dmg *= 1.35; w.cd *= 1.3; }
+  // item level: where it dropped. Deeper finds hit harder, so even a gray from 3-1 beats one from 1-1
+  w.ilvl = opts.ilvl || opts.depth || 1; w.dmg *= 1 + 0.1 * (w.ilvl - 1);
   if (w.quirks.includes('swift')) w.cd /= 1.3;
   if (w.quirks.includes('keen')) w.crit += 0.15;
   const base = rng.pick(B.names), el = ELEM[w.elem].n;
@@ -516,6 +519,24 @@ const hasQ = (w, id) => w.quirks.includes(id);
 
 // ===== Items: each one hooks into the attack pipeline. Synergies fall out of combinations. =====
 // Hooks: shoot(proj) | hit(enemy, src) | kill(enemy, src) | roll() | hurt() | clear()
+// Minor items: small, common, and they stack (up to 5 of each). The trickle between big finds.
+const MINOR_CAP = 5;
+const MINORS = [
+  { id: 'm_whet', n: 'Whetstone', d: '+8% melee damage', c: '#c8ccd6', g: 'sword', apply(p) { p.st.meleeDmg *= 1.08; } },
+  { id: 'm_quiver', n: 'Spare Quiver', d: '+7% ranged damage', c: '#d9b380', g: 'feather', apply(p) { p.st.rangedDmg *= 1.07; } },
+  { id: 'm_fletch', n: 'Fletching Kit', d: 'Bows draw 8% faster', c: '#e0c79a', g: 'moon', apply(p) { p.st.draw *= 0.92; } },
+  { id: 'm_rune', n: 'Rune Chip', d: '+7% spell damage', c: '#b98cff', g: 'eye', apply(p) { p.st.magicDmg *= 1.07; } },
+  { id: 'm_shard', n: 'Mana Shard', d: '+10 max mana', c: '#6fb6ff', g: 'flake', apply(p) { p.st.manaAdd += 10; } },
+  { id: 'm_bead', n: 'Focus Bead', d: 'Mana refills 12% faster', c: '#8fd0ff', g: 'ring', apply(p) { p.st.regenMult *= 1.12; } },
+  { id: 'm_sigil', n: 'Ember Sigil', d: '+5% damage', c: '#ff9a5a', g: 'flame', apply(p) { p.st.dmg *= 1.05; } },
+  { id: 'm_gloves', n: 'Grip Gloves', d: '+6% attack speed', c: '#ffd27a', g: 'bolt', apply(p) { p.st.rate *= 1.06; } },
+  { id: 'm_boots', n: 'Worn Boots', d: '+5% move speed', c: '#9fe0e0', g: 'boot', apply(p) { p.st.speed *= 1.05; } },
+  { id: 'm_feather', n: 'Swift Feather', d: 'Roll recovers 8% faster', c: '#e8f4ff', g: 'feather', apply(p) { p.st.rollCd *= 0.92; } },
+  { id: 'm_clover', n: 'Lucky Clover', d: '+4% crit chance', c: '#7dde7d', g: 'split', apply(p) { p.st.crit += 0.04; } },
+  { id: 'm_eye', n: 'Hawk Eye', d: 'Crits hit 10% harder', c: '#ffe066', g: 'eye', apply(p) { p.st.critMult += 0.1; } },
+  { id: 'm_haft', n: 'Long Haft', d: 'Melee reaches 5% farther', c: '#c9a070', g: 'sword', apply(p) { p.st.reach *= 1.05; } },
+  { id: 'm_blood', n: 'Bloodstone Chip', d: 'Kills have a 3% chance to heal half a heart', c: '#ff5c7a', g: 'heart', apply(p) { p.hooks.kill.push(() => { if (R.chance(0.03)) World.heal(1, p); }); } },
+].map(m => Object.assign(m, { pool: 'minor', minor: true }));
 const ITEMS = [
   { id: 'heart', n: 'Ember Heart', d: '+1 max heart for the rest of the run, heal fully', c: '#ff5470', pool: 'base', g: 'heart', apply(p) { p.maxHp += 2; }, onPick(p) { p.hp = p.maxHp; } },
   { id: 'boots', n: 'Quicksilver Boots', d: 'Move faster, roll more often', c: '#9ff', pool: 'base', g: 'boot', apply(p) { p.st.speed *= 1.15; p.st.rollCd *= 0.6; } },
@@ -541,6 +562,7 @@ const ITEMS = [
   { id: 'phoenix', n: 'Phoenix Feather', d: 'Revive once with 2 hearts', c: '#ffb02e', pool: 'relics', g: 'feather', apply(p) { p.revives++; } },
   { id: 'thunder', n: 'Rolling Thunder', d: 'Rolling releases a ring of sparks', c: '#f2f25a', pool: 'relics', g: 'ring', apply(p) { p.hooks.roll.push(() => World.ring(p.x, p.y, 10, 6 * p.st.dmg, 'storm')); } },
   { id: 'thorns', n: 'Thorn Mantle', d: 'Getting hit fires thorns everywhere', c: '#7dff7a', pool: 'relics', g: 'burst', apply(p) { p.hooks.hurt.push(() => World.ring(p.x, p.y, 16, 9 * p.st.dmg, 'none')); } },
+  ...MINORS,
 ];
 const SYNERGIES = [
   { id: 'steam', n: 'Steam Burst', need: ['kindling', 'frostlens'], d: 'Hitting a burning, chilled foe makes it burst' },
@@ -1067,7 +1089,7 @@ const World = {
   },
   baseStats(cls0) {
     const cls = cls0 || Game.cls || 'fighter', lvl = Game.mode === 'campaign' && Game.char ? Game.char.lvl : 1;
-    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : cls === 'mage' ? 0.8 : 1, rangedDmg: 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
+    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : cls === 'mage' ? 0.8 : 1, rangedDmg: 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, magicDmg: 1, manaAdd: 0, regenMult: 1, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
   },
   // Rebuild stats from scratch from the items held, so items can be dropped cleanly
   recalc(p) {
@@ -1077,6 +1099,7 @@ const World = {
     p.syn = SYNERGIES.filter(s => s.need.every(id => p.items.includes(id))).map(s => s.id);
     for (const s of SYNERGIES) if (p.syn.includes(s.id) && s.apply) s.apply(p);
     for (const b of p.buffs || []) potionById(b.id).buff(p); // active potion effects
+    if (p.baseMana !== undefined) { p.maxMana = p.baseMana + p.st.manaAdd; p.mana = Math.min(p.mana, p.maxMana); p.manaRegen = p.baseRegen * p.st.regenMult; }
     p.hp = Math.min(p.hp, p.maxHp);
   },
   dropItem(p, idx) {
@@ -1098,7 +1121,7 @@ const World = {
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
-      mana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), maxMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), manaRegen: C.regen, exhausted: false, keys: 0, stolen: null,
+      mana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), maxMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), manaRegen: C.regen, baseRegen: C.regen, baseMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), exhausted: false, keys: 0, stolen: null,
       potion: ch ? ch.load.potion : null, relic: ch ? ch.load.relic : null, relicCd: 0, buffs: [], roomsCleared: 0, dispReady: false, auraT: 0, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
     };
   },
@@ -1408,6 +1431,7 @@ const World = {
     return best === null ? a : best;
   },
   critRoll(p, w) { return R.chance((w.crit || 0) + p.st.crit) ? p.st.critMult : 1; },
+  twinM(w) { return hasQ(w, 'twin') ? 0.6 : 1; }, // Twin: two shots at 60% each
   shotCount(p, w) { return 1 + p.st.extraShots + (hasQ(w, 'twin') ? 1 : 0); },
   mkProj(p, w, a, o) {
     const pr = Object.assign({
@@ -1424,25 +1448,25 @@ const World = {
     const c = p.charge, full = c >= 1, n = this.shotCount(p, w), cm = this.critRoll(p, w);
     for (let i = 0; i < n; i++) {
       const a = p.aim + (i - (n - 1) / 2) * 0.1;
-      this.mkProj(p, w, a, { speed: w.speed * (0.55 + 0.45 * c), r: full ? 5 : 4, kind: 'arrow', life: 1.3, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * (0.3 + 0.7 * c) * (full ? 1.3 : 1) * cm, crit: cm > 1, pierce: (full ? 1 : 0) + (hasQ(w, 'pierce') ? 1 : 0), full });
+      this.mkProj(p, w, a, { speed: w.speed * (0.55 + 0.45 * c), r: full ? 5 : 4, kind: 'arrow', life: 1.3, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * (0.3 + 0.7 * c) * (full ? 1.3 : 1) * cm * this.twinM(w), crit: cm > 1, pierce: (full ? 1 : 0) + (hasQ(w, 'pierce') ? 1 : 0), full });
     }
     Snd.play('arrow'); Render.kick(full ? 3 : 1);
   },
   fireCrossbow(p, w) {
     const n = this.shotCount(p, w), cm = this.critRoll(p, w);
-    for (let i = 0; i < n; i++) this.mkProj(p, w, p.aim + (i - (n - 1) / 2) * 0.09, { speed: w.speed, r: 4, kind: 'arrow', full: true, life: 1.2, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * cm, crit: cm > 1, pierce: 99 });
+    for (let i = 0; i < n; i++) this.mkProj(p, w, p.aim + (i - (n - 1) / 2) * 0.09, { speed: w.speed, r: 4, kind: 'arrow', full: true, life: 1.2, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * cm * this.twinM(w), crit: cm > 1, pierce: 99 });
     Snd.play('arrow'); Snd.play('thunk'); Render.kick(3);
   },
   fireBolt(p, w) {
     const n = this.shotCount(p, w), staff = w.type === 'staff';
     for (let i = 0; i < n; i++) {
       const cm = this.critRoll(p, w), a = p.aim + (i - (n - 1) / 2) * 0.16 + R.range(-w.spread, w.spread);
-      this.mkProj(p, w, a, { speed: w.speed, r: staff ? 6 : 4, kind: 'bolt', life: 1.0, dmg: w.dmg * p.st.dmg * cm, crit: cm > 1, elemPow: staff ? 2 : 1 });
+      this.mkProj(p, w, a, { speed: w.speed, r: staff ? 6 : 4, kind: 'bolt', life: 1.0, dmg: w.dmg * p.st.dmg * p.st.magicDmg * cm * this.twinM(w), crit: cm > 1, elemPow: staff ? 2 : 1 });
     }
     Snd.play('bolt');
   },
   cast(p, w) {
-    const dmg = w.dmg * p.st.dmg, a = p.aim, cm = this.critRoll(p, w);
+    const dmg = w.dmg * p.st.dmg * p.st.magicDmg, a = p.aim, cm = this.critRoll(p, w);
     if (w.spell === 'fireball') {
       this.mkProj(p, w, a, { speed: 300, r: 8, kind: 'fireball', life: 1.4, dmg: dmg * 0.3, blast: { rad: 74, dmg: dmg * cm }, crit: cm > 1, pierce: 0, bounce: 0 });
       Snd.play('whoosh');
@@ -1462,7 +1486,7 @@ const World = {
   },
   swing(p, w, echo, lunge) {
     const reach = w.reach * p.st.reach * (lunge ? 1.15 : 1), arc = lunge ? Math.max(w.arc, 1.6) : w.arc, a = p.aim, type = w.type, cm = this.critRoll(p, w);
-    const dmg = w.dmg * p.st.dmg * p.st.meleeDmg * (echo ? 0.6 : 1) * (lunge ? 1.6 : 1) * cm;
+    const dmg = w.dmg * p.st.dmg * p.st.meleeDmg * (echo ? 0.45 : 1) * (lunge ? 1.6 : 1) * cm;
     if (lunge) { Render.kick(5); this.burst(p.x + Math.cos(a) * reach * 0.6, p.y + Math.sin(a) * reach * 0.6, 14, '#ffd27a', 200, 0.35); }
     p.swingDir = -p.swingDir;
     const dur = { sword: 0.15, axe: 0.21, hammer: 0.22, spear: 0.12 }[type];
@@ -1594,6 +1618,9 @@ const World = {
     const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1) * (p.relic === 'amulet' ? 1.25 : 1) + (p.relic === 'amulet' ? R() * 0.5 : 0));
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });
+    if (!e.boss && !e.minion && R.chance(0.025)) this.dropMinor(e.x, e.y);
+    if (!e.boss && !e.minion && R.chance(0.015)) this.pickups.push({ kind: 'stone', x: e.x, y: e.y, t: 0 });
+    if (e.boss) this.pickups.push({ kind: 'stone', x: e.x + 20, y: e.y, t: 0 });
     if (src.leech && R.chance(0.08)) this.heal(1);
     for (const h of p.hooks.kill) h(e, src);
     if (e.boss) { const other = this.enemies.find(x => x !== e && x.boss && !x.dead); if (other) { this.boss = other; Game.banner('', 'One knight remains', 1.2); } else this.bossDown(e); }
@@ -2158,6 +2185,7 @@ const World = {
       if (p.relicCd > 0) { p.relicCd--; if (!p.relicCd && p.relic) this.text(p.x, p.y - 30, relicById(p.relic).n + ' ready', '#ffd27a'); }
       if (p.relic === 'regen' && p.roomsCleared % 3 === 0) this.heal(1, p);
     }
+    if (r.type === 'combat') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); if (R.chance(0.3)) this.dropMinor(s.x - 14, s.y); if (R.chance(0.14)) this.pickups.push({ kind: 'stone', x: s.x + 14, y: s.y, t: 0 }); }
     if (r.type === 'exit') {
       const cx = r.mx * T + T / 2, cy = r.my * T + T / 2;
       this.pickups.push({ kind: 'portal', x: cx, y: cy + T * 2.5, t: 0, last: false });
@@ -2229,12 +2257,14 @@ const World = {
         if (k.t > 0.35 && (dd < 170 * 170 || !this.locked)) { const d = Math.sqrt(dd) || 1, s = 420 + k.t * 200; k.x += (p.x - k.x) / d * s * dt; k.y += (p.y - k.y) / d * s * dt; }
         if (dd < 16 * 16 && k.t > 0.3) { k.gone = true; for (const q of this.players) q.embers++; Game.runEmbers++; Snd.play('ember'); } // everyone gets every ember
       } else if ((k.kind === 'heart' || k.kind === 'half') && dd < 20 * 20 && p.hp < p.maxHp) { k.gone = true; this.heal(k.kind === 'heart' ? 2 : 1, p); }
+      else if (k.kind === 'item' && k.item && k.item.minor && dd < 22 * 22 && k.t > (k.dropped ? 3 : 0.3)) { k.gone = true; this.takeMinor(p, k.item); }
+      else if (k.kind === 'stone' && dd < 22 * 22 && k.t > 0.3) { k.gone = true; this.sharpen(p, 'stone'); }
       else if (k.kind === 'key' && dd < 22 * 22) { k.gone = true; for (const q of this.players) q.keys++; Snd.play('item'); this.text(p.x, p.y - 24, '+1 Key', '#ffd27a'); this.burst(k.x, k.y, 16, '#ffd27a', 140, 0.5); }
     }
     this.pickups = this.pickups.filter(k => !k.gone);
     for (const p of this.players) {
       let near = null, bd = 40 * 40;
-      if (this.live(p)) for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest', 'potion', 'relic', 'corpse', 'merchant'].includes(k.kind) && k.t > 0.5) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; near = k; } }
+      if (this.live(p)) for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest', 'potion', 'relic', 'corpse', 'merchant'].includes(k.kind) && k.t > 0.5 && !(k.item && k.item.minor)) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; near = k; } }
       if (near !== p.near && p.near) p.near.confirm = false;
       p.near = near;
     }
@@ -2302,6 +2332,21 @@ const World = {
       p.charge = 0; Snd.play('item'); this.text(p.x, p.y - 24, k.w.name, RARITY[k.w.rarity].c);
     }
     this.pickups = this.pickups.filter(o => !o.gone);
+  },
+  dropMinor(x, y) { const it = R.pick(MINORS); this.pickups.push({ kind: 'item', item: it, x, y, t: 0 }); },
+  takeMinor(p, it) {
+    if (p.items.filter(id => id === it.id).length >= MINOR_CAP) { p.embers += 8; Game.runEmbers += 8; this.text(p.x, p.y - 24, it.n + ' maxed · +8 embers', '#ffb057'); Snd.play('ember'); return; }
+    p.items.push(it.id); this.recalc(p); Snd.play('item'); this.burst(p.x, p.y, 14, it.c, 140, 0.4);
+    const n = p.items.filter(id => id === it.id).length;
+    this.text(p.x, p.y - 24, it.n + (n > 1 ? ' ×' + n : '') + ' · ' + it.d, it.c);
+  },
+  // Sharpening: +10% damage per step, up to +3. Goes on the weapon in hand, or the other one if that's maxed.
+  sharpen(p, how) {
+    const w = [p.weapons[p.wi], ...p.weapons.filter((x, i) => i !== p.wi)].find(x => x && (x.plus || 0) < 3);
+    if (!w) { p.embers += 15; Game.runEmbers += 15; this.text(p.x, p.y - 24, 'Both weapons maxed · +15 embers', '#ffb057'); Snd.play('ember'); return false; }
+    w.plus = (w.plus || 0) + 1; w.dmg *= 1.1; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus;
+    this.text(p.x, p.y - 24, 'Sharpened: ' + w.name, '#e8f4ff'); Snd.play('charge'); this.burst(p.x, p.y, 20, '#e8f4ff', 160, 0.5);
+    return true;
   },
   // "Pick one" groups (chests, armory): one pick per player, then the rest vanish
   takeFromGroup(p, k) {
@@ -2745,6 +2790,15 @@ const Render = {
         const col = RARITY[k.w.rarity].c;
         c.globalCompositeOperation = 'lighter'; this.drawGlow(col, k.x, k.y + bob, 26 + k.w.rarity * 4, 0.6 + k.w.rarity * 0.08); c.globalCompositeOperation = 'source-over';
         weaponIcon(c, k.w, k.x, k.y + bob, 22, -0.8);
+      } else if (k.kind === 'stone') { // Sharpening Stone
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#e8f4ff', k.x, k.y + bob, 20, 0.6); c.globalCompositeOperation = 'source-over';
+        c.save(); c.translate(k.x, k.y + bob); c.rotate(-0.4);
+        c.fillStyle = '#7d8696'; roundRect(c, -9, -4, 18, 8, 3); c.fill(); c.fillStyle = '#b8c2d4'; roundRect(c, -9, -4, 18, 3, 2); c.fill();
+        c.restore();
+        if ((World.time * 2 + k.x) % 1 < 0.15) { c.fillStyle = '#fff'; c.fillRect(k.x + 5, k.y + bob - 7, 2, 2); }
+      } else if (k.kind === 'item' && k.item.minor) { // small items: smaller and quieter than the big finds
+        c.globalCompositeOperation = 'lighter'; this.drawGlow(k.item.c, k.x, k.y + bob, 16, 0.5); c.globalCompositeOperation = 'source-over';
+        itemIcon(c, k.item, k.x, k.y + bob, 8);
       } else if (k.kind === 'item') {
         c.globalCompositeOperation = 'lighter'; this.drawGlow(k.item.c, k.x, k.y + bob, 28, 0.8); c.globalCompositeOperation = 'source-over';
         c.fillStyle = '#120c22'; c.beginPath(); c.arc(k.x, k.y + 14, 11, 0, TAU); c.fill();
@@ -3338,7 +3392,8 @@ function weaponIcon(c, w, x, y, s, a = -0.8) {
 function itemIcon(c, it, x, y, s) {
   c.save(); c.translate(x, y);
   c.fillStyle = '#1a1230'; c.strokeStyle = it.c; c.lineWidth = 2;
-  c.beginPath(); for (let i = 0; i < 6; i++) { const a = i * TAU / 6 - Math.PI / 2; c.lineTo(Math.cos(a) * s, Math.sin(a) * s); } c.closePath(); c.fill(); c.stroke();
+  if (it.minor) { c.beginPath(); c.arc(0, 0, s, 0, TAU); c.fill(); c.globalAlpha = 0.7; c.stroke(); c.globalAlpha = 1; } // minors are round, majors hexagonal
+  else { c.beginPath(); for (let i = 0; i < 6; i++) { const a = i * TAU / 6 - Math.PI / 2; c.lineTo(Math.cos(a) * s, Math.sin(a) * s); } c.closePath(); c.fill(); c.stroke(); }
   c.strokeStyle = it.c; c.fillStyle = it.c; c.lineWidth = Math.max(1.5, s * 0.12); c.lineCap = 'round'; c.lineJoin = 'round';
   const q = s * 0.5; c.beginPath();
   switch (it.g) {
@@ -3427,7 +3482,11 @@ const HUD = {
     c.font = font(16, 800); c.textAlign = 'left'; c.fillText(Game.runEmbers, pad + 23, pad + 44);
     if (p.keys > 0) { const kx = pad + 70; c.strokeStyle = '#ffd27a'; c.lineWidth = 2.5; c.beginPath(); c.arc(kx, pad + 38, 4, 0, TAU); c.moveTo(kx + 4, pad + 38); c.lineTo(kx + 14, pad + 38); c.moveTo(kx + 11, pad + 38); c.lineTo(kx + 11, pad + 43); c.stroke(); c.fillStyle = '#ffd27a'; c.fillText(p.keys, kx + 19, pad + 44); }
     // items
-    p.items.forEach((id, i) => { const it = ITEMS.find(x => x.id === id); itemIcon(c, it, pad + 11 + (i % 10) * 24, pad + 66 + Math.floor(i / 10) * 24, 10); });
+    { // big items first, then small ones stacked with a count
+      const groups = []; for (const id of p.items) { const g = groups.find(x => x.id === id && x.it.minor); if (g) g.n++; else groups.push({ id, it: ITEMS.find(x => x.id === id), n: 1 }); }
+      groups.sort((a, b) => (a.it.minor ? 1 : 0) - (b.it.minor ? 1 : 0));
+      groups.forEach((g, i) => { const x = pad + 11 + (i % 10) * 24, y = pad + 66 + Math.floor(i / 10) * 24; itemIcon(c, g.it, x, y, g.it.minor ? 8 : 10); if (g.n > 1) { c.font = font(10, 800); c.textAlign = 'right'; c.fillStyle = '#fff'; c.fillText(g.n, x + 11, y + 11); } });
+    }
     // weapons + mana: top center on every device, so mana is always where your eyes are
     const tch = Input.last === 'touch', by = pad - 4;
     let swapY = 0;
@@ -3676,8 +3735,8 @@ function wrapText(c, s, w, max) {
 function fitText(c, s, w) { if (c.measureText(s).width <= w) return s; while (s.length > 3 && c.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
 function weaponLine(w) {
   const dmg = Math.round(w.dmg), spd = (1 / w.cd).toFixed(1);
-  const el = w.elem !== 'none' ? ' · ' + w.elem : '';
-  if (w.type === 'spellbook') return `${SPELLS[w.spell].d} · ${dmg} dmg · ${spd}/s`;
+  const el = (w.elem !== 'none' ? ' · ' + w.elem : '') + (w.ilvl ? ' · iLvl ' + w.ilvl : '');
+  if (w.type === 'spellbook') return `${SPELLS[w.spell].d} · ${dmg} dmg · ${spd}/s${w.ilvl ? ' · iLvl ' + w.ilvl : ''}`;
   return w.type === 'bow' ? `${dmg} dmg · ${w.charge.toFixed(2)}s draw${el}` : `${dmg} dmg · ${spd}/s${el}`;
 }
 
@@ -3889,7 +3948,7 @@ const Menu = {
       this.on('b-back', () => this.show('title'));
     } else if (name === 'pause') {
       const p = World.meP();
-      const items = p.items.map(id => ITEMS.find(x => x.id === id)).map((it, i) => `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}</b><small>${it.d}</small></div><button class="btn" id="drop-${i}">Drop</button></div>`).join('');
+      const items = p.items.map((id, i) => ({ it: ITEMS.find(x => x.id === id), i })).filter((o, k, a) => !o.it.minor || a.findIndex(q => q.it.id === o.it.id) === k).map(({ it, i }) => { const n = p.items.filter(x => x === it.id).length; return `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}${it.minor && n > 1 ? ' ×' + n : ''}</b><small>${it.d}${it.minor && n > 1 ? ' each' : ''}</small></div><button class="btn" id="drop-${i}">Drop${it.minor && n > 1 ? ' one' : ''}</button></div>`; }).join('');
       const syn = p.syn.map(id => SYNERGIES.find(s => s.id === id)).map(s => `<div class="card"><div class="grow"><b class="secret">✦ ${s.n}</b><small>${s.d}</small></div></div>`).join('');
       this.html(`<h2>Paused${Coop.on && Coop.pausedBy ? ' by ' + Coop.pausedBy : ''}</h2><div class="sub"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
         <div class="stats" style="grid-template-columns:auto auto auto auto;max-width:540px;font-size:14px">${statBlock(p)}</div>
@@ -3899,7 +3958,7 @@ const Menu = {
         ${Coop.on && Coop.host && NetTest.qrMode ? '<button class="btn small" id="b-qinv">Invite a player (QR)</button>' : ''}<button class="btn small" id="b-quit">${Coop.on && !Coop.host ? 'Leave Game' : Coop.on ? 'End Run for Everyone' : 'Abandon Run'}</button>${Dev.pausePanel()}`);
       Dev.bindPause();
       this.on('b-res', () => Game.togglePause());
-      p.items.forEach((id, i) => this.on('drop-' + i, () => { if (Coop.on && !Coop.host) { Net.send(Net.peers[0], { t: 'drop', i }); p.items.splice(i, 1); } else World.dropItem(p, i); this.show('pause'); }));
+      p.items.forEach((id, i) => document.getElementById('drop-' + i) && this.on('drop-' + i, () => { if (Coop.on && !Coop.host) { Net.send(Net.peers[0], { t: 'drop', i }); p.items.splice(i, 1); } else World.dropItem(p, i); this.show('pause'); }));
       this.on('b-save', () => { Game.saveSeed(); document.getElementById('b-save').textContent = 'Saved ✓'; });
       this.on('b-mute', () => { Snd.setMuted(!M.muted); document.getElementById('b-mute').textContent = M.muted ? 'Sound: Off' : 'Sound: On'; });
       this.on('b-qinv', () => { NetTest.onDone = () => this.show('pause'); NetTest.qrInvite(); });
@@ -4064,7 +4123,8 @@ const Merchant = {
     const rng = RNG(hash(Game.seedNum, depth, 919));
     const ps = rng.shuffle(POTIONS.slice()).slice(0, 2).map(P => ({ kind: 'potion', id: P.id, price: Math.round(P.cost * 0.5) }));
     const Rl = rng.pick(RELICS), w = makeWeapon(rng, { depth, src: 'armory' });
-    return ps.concat([{ kind: 'relic', id: Rl.id, price: Math.round(Rl.cost * 0.4) }, { kind: 'weapon', w, price: [30, 50, 90, 150, 260][w.rarity] }]);
+    const minors = rng.shuffle(MINORS.slice()).slice(0, 2).map(m => ({ kind: 'minor', id: m.id, price: 18 + 4 * depth }));
+    return [{ kind: 'sharpen', price: 0, repeat: true }].concat(ps, minors, [{ kind: 'relic', id: Rl.id, price: Math.round(Rl.cost * 0.4) }, { kind: 'weapon', w, price: [30, 50, 90, 150, 260][w.rarity] }]);
   },
 };
 
@@ -4165,15 +4225,22 @@ const CampScreens = {
     const st = World.merchant || [], p = World.players[0];
     const rows = st.map((it, k) => {
       if (it.sold) return '';
-      const D = it.kind === 'potion' ? potionById(it.id) : it.kind === 'relic' ? relicById(it.id) : null;
+      if (it.kind === 'sharpen') { // priced by how sharp your weapon already is
+        const w = p.weapons[p.wi], pl = w.plus || 0; it.price = [35, 70, 120][pl] || 0;
+        return pl >= 3 ? `<div class="card"><div class="grow"><b style="color:#e8f4ff">Sharpen ${esc(w.name)}</b><small>Already as sharp as it gets (+3)</small></div></div>`
+          : `<div class="card"><div class="grow"><b style="color:#e8f4ff">Sharpen ${esc(w.name)}</b><small>+10% damage, to +${pl + 1}. Swap weapons to sharpen the other one.</small></div><button class="btn" id="m-${k}" ${Game.runEmbers < it.price ? 'disabled' : ''}>${it.price} ◆</button></div>`;
+      }
+      const D = it.kind === 'potion' ? potionById(it.id) : it.kind === 'relic' ? relicById(it.id) : it.kind === 'minor' ? ITEMS.find(x => x.id === it.id) : null;
       const name = D ? D.n : it.w.name, col = D ? D.c : RARITY[it.w.rarity].c, desc = D ? D.d : `${RARITY[it.w.rarity].n} ${it.w.type} · ${weaponLine(it.w)}`;
       return `<div class="card"><div class="grow"><b style="color:${col}">${esc(name)}</b><small>${desc}</small></div><button class="btn" id="m-${k}" ${Game.runEmbers < it.price ? 'disabled' : ''}>${it.price} ◆</button></div>`;
     }).join('');
     Menu.html(`<h2>Wandering Merchant</h2><div class="sub">"Embers for wares, friend." You have <span class="ember">${Game.runEmbers}</span> this run. What you don't spend is banked at the end.</div><div class="list">${rows || '<div class="sub">Sold out.</div>'}</div><button class="btn" id="b-leave">Leave</button>`);
     st.forEach((it, k) => Menu.on('m-' + k, () => {
       if (it.sold || Game.runEmbers < it.price) return;
+      if (it.kind === 'sharpen') { const w = p.weapons[p.wi]; if ((w.plus || 0) >= 3) return; Game.runEmbers -= it.price; w.plus = (w.plus || 0) + 1; w.dmg *= 1.1; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus; Snd.play('charge'); Menu.show('merchant'); return; }
       Game.runEmbers -= it.price; it.sold = true; Snd.play('item');
-      if (it.kind === 'weapon') World.pickups.push({ kind: 'weapon', w: it.w, x: p.x + 24, y: p.y, t: 0 });
+      if (it.kind === 'minor') World.takeMinor(p, ITEMS.find(x => x.id === it.id));
+      else if (it.kind === 'weapon') World.pickups.push({ kind: 'weapon', w: it.w, x: p.x + 24, y: p.y, t: 0 });
       else { const old = p[it.kind]; p[it.kind] = it.id; if (it.kind === 'relic') p.relicCd = 0; if (old) World.pickups.push({ kind: it.kind, id: old, x: p.x + 24, y: p.y, t: 0 }); }
       Menu.show('merchant');
     }));

@@ -32,10 +32,10 @@ const SPELLS = {
   missiles: { n: 'Magic Missile', elem: 'arcane', dmg: [8, 10], cd: [1.8, 2.2], d: 'Five seeking darts' },
 };
 const QUIRKS = [
-  { id: 'twin', n: 'Twin', suf: 'of Pairs', d: 'Fires an extra projectile', t: ['bow', 'crossbow', 'wand', 'staff'] },
-  { id: 'echo', n: 'Echoing', suf: 'of Echoes', d: 'Every swing strikes twice', t: ['sword', 'axe', 'spear'] },
+  { id: 'twin', n: 'Twin', suf: 'of Pairs', d: 'Fires a second, weaker projectile', t: ['bow', 'crossbow', 'wand', 'staff'] },
+  { id: 'echo', n: 'Echoing', suf: 'of Echoes', d: 'Every swing strikes again, weaker', t: ['sword', 'axe', 'spear'] },
   { id: 'swift', n: 'Swift', suf: 'of Haste', d: '+30% attack speed', t: Object.keys(WBASE) },
-  { id: 'heavy', n: 'Heavy', suf: 'of Ruin', d: '+50% damage, slower', t: Object.keys(WBASE) },
+  { id: 'heavy', n: 'Heavy', suf: 'of Ruin', d: '+35% damage, slower', t: Object.keys(WBASE) },
   { id: 'seeking', n: 'Seeking', suf: 'of the Hunt', d: 'Shots curve toward foes', t: ['bow', 'crossbow', 'wand', 'staff', 'spellbook'] },
   { id: 'wave', n: 'Crescent', suf: 'of the Moon', d: 'Swings launch a crescent wave', t: ['sword', 'axe'] },
   { id: 'pierce', n: 'Piercing', suf: 'of Lances', d: 'Shots pierce one more foe', t: ['bow', 'wand', 'staff'] },
@@ -53,7 +53,8 @@ function properName(rng, n = 2) {
 // Rarity odds by depth (1-9) and source. Legendary is gated to later worlds and bosses.
 function rollRarity(rng, depth, src = 'room') {
   const d = depth;
-  const w = [Math.max(20, 60 - 3 * d), 28 + d, 9 + 2 * d, d <= 1 ? 0.6 : 1 + 1.4 * (d - 1), d < 4 ? 0 : 0.25 * (d - 3)];
+  // gray fades fast: by the second level of a run Uncommon is as likely, and mostly takes over after that
+  const w = [Math.max(8, 50 - 14 * (d - 1)), 30 + 3 * d, 6 + 2.2 * d, d <= 1 ? 0.6 : 0.8 + 1.1 * (d - 1), d < 4 ? 0 : 0.25 * (d - 3)];
   if (src === 'boss') { w[0] *= 0.4; w[3] += 6; if (d >= 3) w[4] += 2 + d * 0.6; }
   if (src === 'armory') { w[0] = 0; w[2] += 6; }
   if (src === 'chest') { w[0] = 0; w[3] += 3; if (d >= 4) w[4] += 0.6; }
@@ -93,7 +94,9 @@ function makeWeapon(rng, opts = {}) {
   const nq = rar >= 4 ? 2 : rar === 3 ? (rng.chance(0.5) ? 2 : 1) : rar === 2 ? 1 : rar === 1 ? (rng.chance(0.4) ? 1 : 0) : 0;
   const pool = rng.shuffle(QUIRKS.filter(q => q.t.includes(type)));
   for (let i = 0; i < nq && i < pool.length; i++) w.quirks.push(pool[i].id);
-  if (w.quirks.includes('heavy')) { w.dmg *= 1.5; w.cd *= 1.35; }
+  if (w.quirks.includes('heavy')) { w.dmg *= 1.35; w.cd *= 1.3; }
+  // item level: where it dropped. Deeper finds hit harder, so even a gray from 3-1 beats one from 1-1
+  w.ilvl = opts.ilvl || opts.depth || 1; w.dmg *= 1 + 0.1 * (w.ilvl - 1);
   if (w.quirks.includes('swift')) w.cd /= 1.3;
   if (w.quirks.includes('keen')) w.crit += 0.15;
   const base = rng.pick(B.names), el = ELEM[w.elem].n;
@@ -110,6 +113,24 @@ const hasQ = (w, id) => w.quirks.includes(id);
 
 // ===== Items: each one hooks into the attack pipeline. Synergies fall out of combinations. =====
 // Hooks: shoot(proj) | hit(enemy, src) | kill(enemy, src) | roll() | hurt() | clear()
+// Minor items: small, common, and they stack (up to 5 of each). The trickle between big finds.
+const MINOR_CAP = 5;
+const MINORS = [
+  { id: 'm_whet', n: 'Whetstone', d: '+8% melee damage', c: '#c8ccd6', g: 'sword', apply(p) { p.st.meleeDmg *= 1.08; } },
+  { id: 'm_quiver', n: 'Spare Quiver', d: '+7% ranged damage', c: '#d9b380', g: 'feather', apply(p) { p.st.rangedDmg *= 1.07; } },
+  { id: 'm_fletch', n: 'Fletching Kit', d: 'Bows draw 8% faster', c: '#e0c79a', g: 'moon', apply(p) { p.st.draw *= 0.92; } },
+  { id: 'm_rune', n: 'Rune Chip', d: '+7% spell damage', c: '#b98cff', g: 'eye', apply(p) { p.st.magicDmg *= 1.07; } },
+  { id: 'm_shard', n: 'Mana Shard', d: '+10 max mana', c: '#6fb6ff', g: 'flake', apply(p) { p.st.manaAdd += 10; } },
+  { id: 'm_bead', n: 'Focus Bead', d: 'Mana refills 12% faster', c: '#8fd0ff', g: 'ring', apply(p) { p.st.regenMult *= 1.12; } },
+  { id: 'm_sigil', n: 'Ember Sigil', d: '+5% damage', c: '#ff9a5a', g: 'flame', apply(p) { p.st.dmg *= 1.05; } },
+  { id: 'm_gloves', n: 'Grip Gloves', d: '+6% attack speed', c: '#ffd27a', g: 'bolt', apply(p) { p.st.rate *= 1.06; } },
+  { id: 'm_boots', n: 'Worn Boots', d: '+5% move speed', c: '#9fe0e0', g: 'boot', apply(p) { p.st.speed *= 1.05; } },
+  { id: 'm_feather', n: 'Swift Feather', d: 'Roll recovers 8% faster', c: '#e8f4ff', g: 'feather', apply(p) { p.st.rollCd *= 0.92; } },
+  { id: 'm_clover', n: 'Lucky Clover', d: '+4% crit chance', c: '#7dde7d', g: 'split', apply(p) { p.st.crit += 0.04; } },
+  { id: 'm_eye', n: 'Hawk Eye', d: 'Crits hit 10% harder', c: '#ffe066', g: 'eye', apply(p) { p.st.critMult += 0.1; } },
+  { id: 'm_haft', n: 'Long Haft', d: 'Melee reaches 5% farther', c: '#c9a070', g: 'sword', apply(p) { p.st.reach *= 1.05; } },
+  { id: 'm_blood', n: 'Bloodstone Chip', d: 'Kills have a 3% chance to heal half a heart', c: '#ff5c7a', g: 'heart', apply(p) { p.hooks.kill.push(() => { if (R.chance(0.03)) World.heal(1, p); }); } },
+].map(m => Object.assign(m, { pool: 'minor', minor: true }));
 const ITEMS = [
   { id: 'heart', n: 'Ember Heart', d: '+1 max heart for the rest of the run, heal fully', c: '#ff5470', pool: 'base', g: 'heart', apply(p) { p.maxHp += 2; }, onPick(p) { p.hp = p.maxHp; } },
   { id: 'boots', n: 'Quicksilver Boots', d: 'Move faster, roll more often', c: '#9ff', pool: 'base', g: 'boot', apply(p) { p.st.speed *= 1.15; p.st.rollCd *= 0.6; } },
@@ -135,6 +156,7 @@ const ITEMS = [
   { id: 'phoenix', n: 'Phoenix Feather', d: 'Revive once with 2 hearts', c: '#ffb02e', pool: 'relics', g: 'feather', apply(p) { p.revives++; } },
   { id: 'thunder', n: 'Rolling Thunder', d: 'Rolling releases a ring of sparks', c: '#f2f25a', pool: 'relics', g: 'ring', apply(p) { p.hooks.roll.push(() => World.ring(p.x, p.y, 10, 6 * p.st.dmg, 'storm')); } },
   { id: 'thorns', n: 'Thorn Mantle', d: 'Getting hit fires thorns everywhere', c: '#7dff7a', pool: 'relics', g: 'burst', apply(p) { p.hooks.hurt.push(() => World.ring(p.x, p.y, 16, 9 * p.st.dmg, 'none')); } },
+  ...MINORS,
 ];
 const SYNERGIES = [
   { id: 'steam', n: 'Steam Burst', need: ['kindling', 'frostlens'], d: 'Hitting a burning, chilled foe makes it burst' },

@@ -306,6 +306,15 @@ const Render = {
         const col = RARITY[k.w.rarity].c;
         c.globalCompositeOperation = 'lighter'; this.drawGlow(col, k.x, k.y + bob, 26 + k.w.rarity * 4, 0.6 + k.w.rarity * 0.08); c.globalCompositeOperation = 'source-over';
         weaponIcon(c, k.w, k.x, k.y + bob, 22, -0.8);
+      } else if (k.kind === 'stone') { // Sharpening Stone
+        c.globalCompositeOperation = 'lighter'; this.drawGlow('#e8f4ff', k.x, k.y + bob, 20, 0.6); c.globalCompositeOperation = 'source-over';
+        c.save(); c.translate(k.x, k.y + bob); c.rotate(-0.4);
+        c.fillStyle = '#7d8696'; roundRect(c, -9, -4, 18, 8, 3); c.fill(); c.fillStyle = '#b8c2d4'; roundRect(c, -9, -4, 18, 3, 2); c.fill();
+        c.restore();
+        if ((World.time * 2 + k.x) % 1 < 0.15) { c.fillStyle = '#fff'; c.fillRect(k.x + 5, k.y + bob - 7, 2, 2); }
+      } else if (k.kind === 'item' && k.item.minor) { // small items: smaller and quieter than the big finds
+        c.globalCompositeOperation = 'lighter'; this.drawGlow(k.item.c, k.x, k.y + bob, 16, 0.5); c.globalCompositeOperation = 'source-over';
+        itemIcon(c, k.item, k.x, k.y + bob, 8);
       } else if (k.kind === 'item') {
         c.globalCompositeOperation = 'lighter'; this.drawGlow(k.item.c, k.x, k.y + bob, 28, 0.8); c.globalCompositeOperation = 'source-over';
         c.fillStyle = '#120c22'; c.beginPath(); c.arc(k.x, k.y + 14, 11, 0, TAU); c.fill();
@@ -899,7 +908,8 @@ function weaponIcon(c, w, x, y, s, a = -0.8) {
 function itemIcon(c, it, x, y, s) {
   c.save(); c.translate(x, y);
   c.fillStyle = '#1a1230'; c.strokeStyle = it.c; c.lineWidth = 2;
-  c.beginPath(); for (let i = 0; i < 6; i++) { const a = i * TAU / 6 - Math.PI / 2; c.lineTo(Math.cos(a) * s, Math.sin(a) * s); } c.closePath(); c.fill(); c.stroke();
+  if (it.minor) { c.beginPath(); c.arc(0, 0, s, 0, TAU); c.fill(); c.globalAlpha = 0.7; c.stroke(); c.globalAlpha = 1; } // minors are round, majors hexagonal
+  else { c.beginPath(); for (let i = 0; i < 6; i++) { const a = i * TAU / 6 - Math.PI / 2; c.lineTo(Math.cos(a) * s, Math.sin(a) * s); } c.closePath(); c.fill(); c.stroke(); }
   c.strokeStyle = it.c; c.fillStyle = it.c; c.lineWidth = Math.max(1.5, s * 0.12); c.lineCap = 'round'; c.lineJoin = 'round';
   const q = s * 0.5; c.beginPath();
   switch (it.g) {

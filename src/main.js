@@ -33,7 +33,11 @@ const HUD = {
     c.font = font(16, 800); c.textAlign = 'left'; c.fillText(Game.runEmbers, pad + 23, pad + 44);
     if (p.keys > 0) { const kx = pad + 70; c.strokeStyle = '#ffd27a'; c.lineWidth = 2.5; c.beginPath(); c.arc(kx, pad + 38, 4, 0, TAU); c.moveTo(kx + 4, pad + 38); c.lineTo(kx + 14, pad + 38); c.moveTo(kx + 11, pad + 38); c.lineTo(kx + 11, pad + 43); c.stroke(); c.fillStyle = '#ffd27a'; c.fillText(p.keys, kx + 19, pad + 44); }
     // items
-    p.items.forEach((id, i) => { const it = ITEMS.find(x => x.id === id); itemIcon(c, it, pad + 11 + (i % 10) * 24, pad + 66 + Math.floor(i / 10) * 24, 10); });
+    { // big items first, then small ones stacked with a count
+      const groups = []; for (const id of p.items) { const g = groups.find(x => x.id === id && x.it.minor); if (g) g.n++; else groups.push({ id, it: ITEMS.find(x => x.id === id), n: 1 }); }
+      groups.sort((a, b) => (a.it.minor ? 1 : 0) - (b.it.minor ? 1 : 0));
+      groups.forEach((g, i) => { const x = pad + 11 + (i % 10) * 24, y = pad + 66 + Math.floor(i / 10) * 24; itemIcon(c, g.it, x, y, g.it.minor ? 8 : 10); if (g.n > 1) { c.font = font(10, 800); c.textAlign = 'right'; c.fillStyle = '#fff'; c.fillText(g.n, x + 11, y + 11); } });
+    }
     // weapons + mana: top center on every device, so mana is always where your eyes are
     const tch = Input.last === 'touch', by = pad - 4;
     let swapY = 0;
@@ -282,8 +286,8 @@ function wrapText(c, s, w, max) {
 function fitText(c, s, w) { if (c.measureText(s).width <= w) return s; while (s.length > 3 && c.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
 function weaponLine(w) {
   const dmg = Math.round(w.dmg), spd = (1 / w.cd).toFixed(1);
-  const el = w.elem !== 'none' ? ' · ' + w.elem : '';
-  if (w.type === 'spellbook') return `${SPELLS[w.spell].d} · ${dmg} dmg · ${spd}/s`;
+  const el = (w.elem !== 'none' ? ' · ' + w.elem : '') + (w.ilvl ? ' · iLvl ' + w.ilvl : '');
+  if (w.type === 'spellbook') return `${SPELLS[w.spell].d} · ${dmg} dmg · ${spd}/s${w.ilvl ? ' · iLvl ' + w.ilvl : ''}`;
   return w.type === 'bow' ? `${dmg} dmg · ${w.charge.toFixed(2)}s draw${el}` : `${dmg} dmg · ${spd}/s${el}`;
 }
 
@@ -495,7 +499,7 @@ const Menu = {
       this.on('b-back', () => this.show('title'));
     } else if (name === 'pause') {
       const p = World.meP();
-      const items = p.items.map(id => ITEMS.find(x => x.id === id)).map((it, i) => `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}</b><small>${it.d}</small></div><button class="btn" id="drop-${i}">Drop</button></div>`).join('');
+      const items = p.items.map((id, i) => ({ it: ITEMS.find(x => x.id === id), i })).filter((o, k, a) => !o.it.minor || a.findIndex(q => q.it.id === o.it.id) === k).map(({ it, i }) => { const n = p.items.filter(x => x === it.id).length; return `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}${it.minor && n > 1 ? ' ×' + n : ''}</b><small>${it.d}${it.minor && n > 1 ? ' each' : ''}</small></div><button class="btn" id="drop-${i}">Drop${it.minor && n > 1 ? ' one' : ''}</button></div>`; }).join('');
       const syn = p.syn.map(id => SYNERGIES.find(s => s.id === id)).map(s => `<div class="card"><div class="grow"><b class="secret">✦ ${s.n}</b><small>${s.d}</small></div></div>`).join('');
       this.html(`<h2>Paused${Coop.on && Coop.pausedBy ? ' by ' + Coop.pausedBy : ''}</h2><div class="sub"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
         <div class="stats" style="grid-template-columns:auto auto auto auto;max-width:540px;font-size:14px">${statBlock(p)}</div>
@@ -505,7 +509,7 @@ const Menu = {
         ${Coop.on && Coop.host && NetTest.qrMode ? '<button class="btn small" id="b-qinv">Invite a player (QR)</button>' : ''}<button class="btn small" id="b-quit">${Coop.on && !Coop.host ? 'Leave Game' : Coop.on ? 'End Run for Everyone' : 'Abandon Run'}</button>${Dev.pausePanel()}`);
       Dev.bindPause();
       this.on('b-res', () => Game.togglePause());
-      p.items.forEach((id, i) => this.on('drop-' + i, () => { if (Coop.on && !Coop.host) { Net.send(Net.peers[0], { t: 'drop', i }); p.items.splice(i, 1); } else World.dropItem(p, i); this.show('pause'); }));
+      p.items.forEach((id, i) => document.getElementById('drop-' + i) && this.on('drop-' + i, () => { if (Coop.on && !Coop.host) { Net.send(Net.peers[0], { t: 'drop', i }); p.items.splice(i, 1); } else World.dropItem(p, i); this.show('pause'); }));
       this.on('b-save', () => { Game.saveSeed(); document.getElementById('b-save').textContent = 'Saved ✓'; });
       this.on('b-mute', () => { Snd.setMuted(!M.muted); document.getElementById('b-mute').textContent = M.muted ? 'Sound: Off' : 'Sound: On'; });
       this.on('b-qinv', () => { NetTest.onDone = () => this.show('pause'); NetTest.qrInvite(); });

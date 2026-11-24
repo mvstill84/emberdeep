@@ -358,7 +358,7 @@ const World = {
   },
   baseStats(cls0) {
     const cls = cls0 || Game.cls || 'fighter', lvl = Game.mode === 'campaign' && Game.char ? Game.char.lvl : 1;
-    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : cls === 'mage' ? 0.8 : 1, rangedDmg: 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
+    return { speed: 155, rollCd: 0.42, dmg: (Game.mods.glass ? 3 : 1) * (1 + 0.03 * (lvl - 1)), meleeDmg: cls === 'fighter' ? 1.2 : cls === 'mage' ? 0.8 : 1, rangedDmg: 1, draw: cls === 'ranger' ? 0.8 : 1, rate: 1, extraShots: 0, bounce: 0, reach: 1, homing: 0, reflect: false, magicDmg: 1, manaAdd: 0, regenMult: 1, addElem: new Set(), crit: 0, critMult: 2, hurtMult: 1, hungryN: 15, parry: 0.35, pierceAdd: 0, aura: false };
   },
   // Rebuild stats from scratch from the items held, so items can be dropped cleanly
   recalc(p) {
@@ -368,6 +368,7 @@ const World = {
     p.syn = SYNERGIES.filter(s => s.need.every(id => p.items.includes(id))).map(s => s.id);
     for (const s of SYNERGIES) if (p.syn.includes(s.id) && s.apply) s.apply(p);
     for (const b of p.buffs || []) potionById(b.id).buff(p); // active potion effects
+    if (p.baseMana !== undefined) { p.maxMana = p.baseMana + p.st.manaAdd; p.mana = Math.min(p.mana, p.maxMana); p.manaRegen = p.baseRegen * p.st.regenMult; }
     p.hp = Math.min(p.hp, p.maxHp);
   },
   dropItem(p, idx) {
@@ -389,7 +390,7 @@ const World = {
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
       revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
-      mana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), maxMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), manaRegen: C.regen, exhausted: false, keys: 0, stolen: null,
+      mana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), maxMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), manaRegen: C.regen, baseRegen: C.regen, baseMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), exhausted: false, keys: 0, stolen: null,
       potion: ch ? ch.load.potion : null, relic: ch ? ch.load.relic : null, relicCd: 0, buffs: [], roomsCleared: 0, dispReady: false, auraT: 0, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
     };
   },
@@ -699,6 +700,7 @@ const World = {
     return best === null ? a : best;
   },
   critRoll(p, w) { return R.chance((w.crit || 0) + p.st.crit) ? p.st.critMult : 1; },
+  twinM(w) { return hasQ(w, 'twin') ? 0.6 : 1; }, // Twin: two shots at 60% each
   shotCount(p, w) { return 1 + p.st.extraShots + (hasQ(w, 'twin') ? 1 : 0); },
   mkProj(p, w, a, o) {
     const pr = Object.assign({
@@ -715,25 +717,25 @@ const World = {
     const c = p.charge, full = c >= 1, n = this.shotCount(p, w), cm = this.critRoll(p, w);
     for (let i = 0; i < n; i++) {
       const a = p.aim + (i - (n - 1) / 2) * 0.1;
-      this.mkProj(p, w, a, { speed: w.speed * (0.55 + 0.45 * c), r: full ? 5 : 4, kind: 'arrow', life: 1.3, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * (0.3 + 0.7 * c) * (full ? 1.3 : 1) * cm, crit: cm > 1, pierce: (full ? 1 : 0) + (hasQ(w, 'pierce') ? 1 : 0), full });
+      this.mkProj(p, w, a, { speed: w.speed * (0.55 + 0.45 * c), r: full ? 5 : 4, kind: 'arrow', life: 1.3, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * (0.3 + 0.7 * c) * (full ? 1.3 : 1) * cm * this.twinM(w), crit: cm > 1, pierce: (full ? 1 : 0) + (hasQ(w, 'pierce') ? 1 : 0), full });
     }
     Snd.play('arrow'); Render.kick(full ? 3 : 1);
   },
   fireCrossbow(p, w) {
     const n = this.shotCount(p, w), cm = this.critRoll(p, w);
-    for (let i = 0; i < n; i++) this.mkProj(p, w, p.aim + (i - (n - 1) / 2) * 0.09, { speed: w.speed, r: 4, kind: 'arrow', full: true, life: 1.2, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * cm, crit: cm > 1, pierce: 99 });
+    for (let i = 0; i < n; i++) this.mkProj(p, w, p.aim + (i - (n - 1) / 2) * 0.09, { speed: w.speed, r: 4, kind: 'arrow', full: true, life: 1.2, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * cm * this.twinM(w), crit: cm > 1, pierce: 99 });
     Snd.play('arrow'); Snd.play('thunk'); Render.kick(3);
   },
   fireBolt(p, w) {
     const n = this.shotCount(p, w), staff = w.type === 'staff';
     for (let i = 0; i < n; i++) {
       const cm = this.critRoll(p, w), a = p.aim + (i - (n - 1) / 2) * 0.16 + R.range(-w.spread, w.spread);
-      this.mkProj(p, w, a, { speed: w.speed, r: staff ? 6 : 4, kind: 'bolt', life: 1.0, dmg: w.dmg * p.st.dmg * cm, crit: cm > 1, elemPow: staff ? 2 : 1 });
+      this.mkProj(p, w, a, { speed: w.speed, r: staff ? 6 : 4, kind: 'bolt', life: 1.0, dmg: w.dmg * p.st.dmg * p.st.magicDmg * cm * this.twinM(w), crit: cm > 1, elemPow: staff ? 2 : 1 });
     }
     Snd.play('bolt');
   },
   cast(p, w) {
-    const dmg = w.dmg * p.st.dmg, a = p.aim, cm = this.critRoll(p, w);
+    const dmg = w.dmg * p.st.dmg * p.st.magicDmg, a = p.aim, cm = this.critRoll(p, w);
     if (w.spell === 'fireball') {
       this.mkProj(p, w, a, { speed: 300, r: 8, kind: 'fireball', life: 1.4, dmg: dmg * 0.3, blast: { rad: 74, dmg: dmg * cm }, crit: cm > 1, pierce: 0, bounce: 0 });
       Snd.play('whoosh');
@@ -753,7 +755,7 @@ const World = {
   },
   swing(p, w, echo, lunge) {
     const reach = w.reach * p.st.reach * (lunge ? 1.15 : 1), arc = lunge ? Math.max(w.arc, 1.6) : w.arc, a = p.aim, type = w.type, cm = this.critRoll(p, w);
-    const dmg = w.dmg * p.st.dmg * p.st.meleeDmg * (echo ? 0.6 : 1) * (lunge ? 1.6 : 1) * cm;
+    const dmg = w.dmg * p.st.dmg * p.st.meleeDmg * (echo ? 0.45 : 1) * (lunge ? 1.6 : 1) * cm;
     if (lunge) { Render.kick(5); this.burst(p.x + Math.cos(a) * reach * 0.6, p.y + Math.sin(a) * reach * 0.6, 14, '#ffd27a', 200, 0.35); }
     p.swingDir = -p.swingDir;
     const dur = { sword: 0.15, axe: 0.21, hammer: 0.22, spear: 0.12 }[type];
@@ -885,6 +887,9 @@ const World = {
     const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1) * (p.relic === 'amulet' ? 1.25 : 1) + (p.relic === 'amulet' ? R() * 0.5 : 0));
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });
+    if (!e.boss && !e.minion && R.chance(0.025)) this.dropMinor(e.x, e.y);
+    if (!e.boss && !e.minion && R.chance(0.015)) this.pickups.push({ kind: 'stone', x: e.x, y: e.y, t: 0 });
+    if (e.boss) this.pickups.push({ kind: 'stone', x: e.x + 20, y: e.y, t: 0 });
     if (src.leech && R.chance(0.08)) this.heal(1);
     for (const h of p.hooks.kill) h(e, src);
     if (e.boss) { const other = this.enemies.find(x => x !== e && x.boss && !x.dead); if (other) { this.boss = other; Game.banner('', 'One knight remains', 1.2); } else this.bossDown(e); }
@@ -1449,6 +1454,7 @@ const World = {
       if (p.relicCd > 0) { p.relicCd--; if (!p.relicCd && p.relic) this.text(p.x, p.y - 30, relicById(p.relic).n + ' ready', '#ffd27a'); }
       if (p.relic === 'regen' && p.roomsCleared % 3 === 0) this.heal(1, p);
     }
+    if (r.type === 'combat') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); if (R.chance(0.3)) this.dropMinor(s.x - 14, s.y); if (R.chance(0.14)) this.pickups.push({ kind: 'stone', x: s.x + 14, y: s.y, t: 0 }); }
     if (r.type === 'exit') {
       const cx = r.mx * T + T / 2, cy = r.my * T + T / 2;
       this.pickups.push({ kind: 'portal', x: cx, y: cy + T * 2.5, t: 0, last: false });
@@ -1520,12 +1526,14 @@ const World = {
         if (k.t > 0.35 && (dd < 170 * 170 || !this.locked)) { const d = Math.sqrt(dd) || 1, s = 420 + k.t * 200; k.x += (p.x - k.x) / d * s * dt; k.y += (p.y - k.y) / d * s * dt; }
         if (dd < 16 * 16 && k.t > 0.3) { k.gone = true; for (const q of this.players) q.embers++; Game.runEmbers++; Snd.play('ember'); } // everyone gets every ember
       } else if ((k.kind === 'heart' || k.kind === 'half') && dd < 20 * 20 && p.hp < p.maxHp) { k.gone = true; this.heal(k.kind === 'heart' ? 2 : 1, p); }
+      else if (k.kind === 'item' && k.item && k.item.minor && dd < 22 * 22 && k.t > (k.dropped ? 3 : 0.3)) { k.gone = true; this.takeMinor(p, k.item); }
+      else if (k.kind === 'stone' && dd < 22 * 22 && k.t > 0.3) { k.gone = true; this.sharpen(p, 'stone'); }
       else if (k.kind === 'key' && dd < 22 * 22) { k.gone = true; for (const q of this.players) q.keys++; Snd.play('item'); this.text(p.x, p.y - 24, '+1 Key', '#ffd27a'); this.burst(k.x, k.y, 16, '#ffd27a', 140, 0.5); }
     }
     this.pickups = this.pickups.filter(k => !k.gone);
     for (const p of this.players) {
       let near = null, bd = 40 * 40;
-      if (this.live(p)) for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest', 'potion', 'relic', 'corpse', 'merchant'].includes(k.kind) && k.t > 0.5) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; near = k; } }
+      if (this.live(p)) for (const k of this.pickups) if (['weapon', 'item', 'chest', 'portal', 'lockchest', 'potion', 'relic', 'corpse', 'merchant'].includes(k.kind) && k.t > 0.5 && !(k.item && k.item.minor)) { const dd = d2(p.x, p.y, k.x, k.y); if (dd < bd) { bd = dd; near = k; } }
       if (near !== p.near && p.near) p.near.confirm = false;
       p.near = near;
     }
@@ -1593,6 +1601,21 @@ const World = {
       p.charge = 0; Snd.play('item'); this.text(p.x, p.y - 24, k.w.name, RARITY[k.w.rarity].c);
     }
     this.pickups = this.pickups.filter(o => !o.gone);
+  },
+  dropMinor(x, y) { const it = R.pick(MINORS); this.pickups.push({ kind: 'item', item: it, x, y, t: 0 }); },
+  takeMinor(p, it) {
+    if (p.items.filter(id => id === it.id).length >= MINOR_CAP) { p.embers += 8; Game.runEmbers += 8; this.text(p.x, p.y - 24, it.n + ' maxed · +8 embers', '#ffb057'); Snd.play('ember'); return; }
+    p.items.push(it.id); this.recalc(p); Snd.play('item'); this.burst(p.x, p.y, 14, it.c, 140, 0.4);
+    const n = p.items.filter(id => id === it.id).length;
+    this.text(p.x, p.y - 24, it.n + (n > 1 ? ' ×' + n : '') + ' · ' + it.d, it.c);
+  },
+  // Sharpening: +10% damage per step, up to +3. Goes on the weapon in hand, or the other one if that's maxed.
+  sharpen(p, how) {
+    const w = [p.weapons[p.wi], ...p.weapons.filter((x, i) => i !== p.wi)].find(x => x && (x.plus || 0) < 3);
+    if (!w) { p.embers += 15; Game.runEmbers += 15; this.text(p.x, p.y - 24, 'Both weapons maxed · +15 embers', '#ffb057'); Snd.play('ember'); return false; }
+    w.plus = (w.plus || 0) + 1; w.dmg *= 1.1; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus;
+    this.text(p.x, p.y - 24, 'Sharpened: ' + w.name, '#e8f4ff'); Snd.play('charge'); this.burst(p.x, p.y, 20, '#e8f4ff', 160, 0.5);
+    return true;
   },
   // "Pick one" groups (chests, armory): one pick per player, then the rest vanish
   takeFromGroup(p, k) {
