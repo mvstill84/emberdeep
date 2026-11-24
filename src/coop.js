@@ -223,7 +223,7 @@ const Coop = {
       rv: W.rooms.map(r => (r.visited ? 1 : 0) + (r.known ? 2 : 0) + (r.cleared ? 4 : 0)).join(''),
       P: players, E: this.pack(W.enemies), R: this.pack(W.projs), K: this.pack(pk), H: this.pack(W.hazards), S: this.pack(W.slime), Wn: this.pack(W.warns),
       Z: this.pack(W.zones), PT: this.pack(W.ptraps), TR: this.pack(W.traps), B: this.pack(W.bolts), X: this.pack(W.texts),
-      dc: W.decoy ? this.clean(W.decoy, 0) : null, gn: W.gnome ? this.clean(W.gnome, 0) : null, re: Game.runEmbers,
+      ch: W.challenge ? { kind: W.challenge.kind, t: W.challenge.t, max: W.challenge.max } : null, fr: W.rooms.filter(r => r.frozen).map(r => r.id).join(','), co: W.rooms.filter(r => r.collapsed).map(r => r.id).join(','), dc: W.decoy ? this.clean(W.decoy, 0) : null, gn: W.gnome ? this.clean(W.gnome, 0) : null, re: Game.runEmbers,
     };
   },
 
@@ -295,7 +295,7 @@ const Coop = {
       if (prev && Math.hypot(ne.x - prev.x, ne.y - prev.y) < 150) { e.x = prev.x; e.y = prev.y; }
       this.ents.set(ne.id, e);
       if (e.boss) { const B = (WORLDS[W.world].bosses.find(b => b.id === e.bid)) || WORLDS[W.world].bosses[0]; e.B = B; e.D = { n: B.title, c: B.c, r: e.r, hp: e.maxHp, ai: 'boss' }; }
-      else e.D = EDEF[e.type] || EDEF.goblin;
+      else e.D = e.champ ? Object.assign({}, EDEF[e.type], { n: World.champName(e) }) : EDEF[e.type] || EDEF.goblin;
       list.push(e);
     }
     for (const id of [...this.ents.keys()]) if (!seen.has(id)) this.ents.delete(id);
@@ -304,7 +304,9 @@ const Coop = {
     W.lastHit = m.lh ? { e: this.ents.get(m.lh.id) || { D: { n: m.lh.n, c: m.lh.c }, hp: 0, maxHp: 1, dead: true }, t: m.lh.t } : null;
     W.projs = this.unpack(m.R); W.hazards = this.unpack(m.H); W.slime = this.unpack(m.S); W.warns = this.unpack(m.Wn); W.zones = this.unpack(m.Z);
     W.ptraps = this.unpack(m.PT); W.traps = this.unpack(m.TR); W.bolts = this.unpack(m.B); W.texts = this.unpack(m.X);
-    W.decoy = m.dc; W.gnome = m.gn;
+    W.decoy = m.dc; W.gnome = m.gn; W.challenge = m.ch;
+    const fr = new Set((m.fr || '').split(',').filter(Boolean).map(Number)), co = new Set((m.co || '').split(',').filter(Boolean).map(Number));
+    for (const r of W.rooms) { r.frozen = fr.has(r.id) ? {} : null; r.collapsed = co.has(r.id); }
     // pause follows the host
     this.pausedBy = m.pz || '';
     if (m.gs === 'pause' && Game.state === 'play') { Game.state = 'pause'; Menu.show('pause'); }

@@ -4,6 +4,8 @@ const VOID = 0, FLOOR = 1, WALL = 2, PILLAR = 3, DOOR = 4, SHUT = 5;
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const solidT = t => t === VOID || t === WALL || t === PILLAR || t === SHUT;
 
+// a seeded rng per room, for things that should be the same on every device
+const rng0 = r => RNG(hash(Game.seedNum, World.depth, r.id, 4242));
 const World = {
   eid: 0,
   world: 1, level: 1, depth: 1, theme: null, map: null, roomId: null, rooms: [], room: null, locked: false, waves: [], waveT: 0,
@@ -21,33 +23,72 @@ const World = {
     this.traps = []; this.stalT = 4;
     const cells = new Map(), key = (x, y) => x + y * GRID;
     const rooms = this.rooms = [];
-    const add = (cx, cy) => { const r = { id: rooms.length, cx, cy, links: [], type: 'combat', cleared: false, visited: false, known: false, doors: [] }; rooms.push(r); cells.set(key(cx, cy), r); return r; };
+    const add = (cx, cy) => { const r = { id: rooms.length, cx, cy, links: [], type: 'combat', cleared: false, visited: false, known: false, doors: [], doorTo: {} }; rooms.push(r); cells.set(key(cx, cy), r); return r; };
     const link = (a, b) => { a.links.push(b.id); b.links.push(a.id); };
-    const start = add(rng.int(1, GRID - 2), rng.int(1, GRID - 2)); start.type = 'start';
-    const target = (l === 1 ? 8 : 9) + (w > 1 ? 1 : 0);
-    for (let tries = 0; rooms.length < target && tries < 3000; tries++) {
-      const r = rng.chance(0.55) ? rooms[Math.max(0, rooms.length - 1 - rng.int(0, 2))] : rng.pick(rooms);
-      const [dx, dy] = rng.pick(DIRS), nx = r.cx + dx, ny = r.cy + dy;
-      if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID || cells.has(key(nx, ny))) continue;
-      let nb = 0; for (const [ex, ey] of DIRS) if (cells.has(key(nx + ex, ny + ey))) nb++;
-      if (nb > 1 && rng.chance(0.75)) continue;
-      link(r, add(nx, ny));
+    // ---- layout: a start, an exit, and two or three routes between them, with a few side rooms off the routes.
+    // Route types: horde (more foes), gauntlet (heavy hazards), elite (a champion). Signposted at the start room.
+    const K = (x, y) => x + ',' + y;
+    const flipX = rng.chance(0.5), flipY = rng.chance(0.5), turn = rng.chance(0.5); // vary the orientation run to run
+    const tf = ([x, y]) => { const a = flipX ? GRID - 1 - x : x, b = flipY ? GRID - 1 - y : y; return turn ? [b, a] : [a, b]; };
+    const S = [1, rng.int(2, 3)], E = [GRID - 2, rng.int(2, 3)]; // one column in from the edges leaves room for side rooms
+    const inG = ([x, y]) => x >= 0 && y >= 0 && x < GRID && y < GRID, md = ([x, y]) => Math.abs(x - E[0]) + Math.abs(y - E[1]);
+    let paths = [], best = [];
+    const want = rng.chance(0.3) ? 2 : 3;
+    for (let attempt = 0; attempt < 60 && best.length < want; attempt++) {
+      const used = new Set([K(...S), K(...E)]); paths = [];
+      for (let i = 0; i < want; i++) {
+        let found = null;
+        for (let tries = 0; tries < 40 && !found; tries++) {
+          const firsts = DIRS.map(([dx, dy]) => [S[0] + dx, S[1] + dy]).filter(c => inG(c) && !used.has(K(...c)));
+          if (!firsts.length) break;
+          const path = [rng.pick(firsts)], seen = new Set([K(...path[0])]);
+          while (path.length <= 5) {
+            const cur = path[path.length - 1];
+            if (md(cur) === 1 && path.length >= 2) { found = path; break; }
+            const opts = DIRS.map(([dx, dy]) => [cur[0] + dx, cur[1] + dy]).filter(c => inG(c) && !used.has(K(...c)) && !seen.has(K(...c)));
+            if (!opts.length) break;
+            opts.sort((p, q) => md(p) - md(q) + (rng() - 0.5) * 2.4); // drift toward the exit, with some wander
+            path.push(opts[0]); seen.add(K(...opts[0]));
+          }
+        }
+        if (!found) break;
+        found.forEach(c => used.add(K(...c))); paths.push(found);
+      }
+      if (paths.length > best.length) best = paths;
+    }
+    paths = best;
+    const types = (w === 1 && l === 1) ? ['horde'] : ['horde', 'gauntlet', 'elite'].filter(t => (t !== 'elite' || l > 1) && (t !== 'gauntlet' || style !== 'cave' || l === 3));
+    const rtypes = paths.map(() => rng.pick(types));
+    if (rtypes.length === 3 && rtypes[0] === rtypes[1] && rtypes[1] === rtypes[2] && types.length > 1) rtypes[2] = rng.pick(types.filter(t => t !== rtypes[0]));
+    const start = add(...tf(S)); start.type = 'start';
+    const routeRooms = [];
+    paths.forEach((p, i) => {
+      let prev = start;
+      p.forEach((c, j) => { const r = add(...tf(c)); r.route = rtypes[i]; r.routeIdx = i; link(prev, r); prev = r; routeRooms.push(r); if (rtypes[i] === 'elite' && j === Math.floor((p.length - 1) / 2)) r.champion = true; });
+      paths[i].last = prev;
+    });
+    const end = add(...tf(E)); end.type = l === 3 ? 'boss' : 'exit';
+    paths.forEach(p => link(p.last, end));
+    // side rooms: dead ends off the routes (challenge, armory, treasure)
+    const sideKinds = [];
+    if (!(w === 1 && l === 1) && rng.chance(0.55)) sideKinds.push('challenge');
+    if (l === 2) sideKinds.push('armory');
+    for (let i = rng.int(0, 2); i > 0; i--) sideKinds.push('combat');
+    for (const kind of sideKinds) {
+      const spots = [];
+      for (const r of routeRooms) for (const [dx, dy] of DIRS) { const nx = r.cx + dx, ny = r.cy + dy; if (nx >= 0 && ny >= 0 && nx < GRID && ny < GRID && !cells.has(key(nx, ny))) spots.push([r, nx, ny]); }
+      if (!spots.length) break;
+      const [r, nx, ny] = rng.pick(spots), sr = add(nx, ny); sr.type = kind; sr.side = true; link(r, sr);
     }
     const dist = new Map([[0, 0]]), q = [0];
     while (q.length) { const id = q.shift(); for (const n of rooms[id].links) if (!dist.has(n)) { dist.set(n, dist.get(id) + 1); q.push(n); } }
     rooms.forEach(r => r.dist = dist.get(r.id));
-    const ends = rooms.filter(r => r.links.length === 1 && r.type !== 'start').sort((a, b) => b.dist - a.dist);
-    const boss = ends[0] || rooms[rooms.length - 1]; boss.type = l === 3 ? 'boss' : 'exit';
-    if (l === 2) { const a = ends[1] || rng.pick(rooms.filter(r => r.type === 'combat')); if (a) a.type = 'armory'; }
-    for (const r of rooms) for (const [dx, dy] of DIRS) {
-      const n = cells.get(key(r.cx + dx, r.cy + dy));
-      if (n && n.id > r.id && !r.links.includes(n.id) && r.type !== 'boss' && n.type !== 'boss' && r.type !== 'exit' && n.type !== 'exit' && rng.chance(0.12)) link(r, n);
-    }
     // bounding rects (odd sizes keep a clean center tile)
     for (const r of rooms) {
       if (r.type === 'boss') { r.w = 29; r.h = 21; }
       else if (r.type === 'exit') { r.w = 25; r.h = 17; }
       else if (r.type === 'start' || r.type === 'armory') { r.w = 13; r.h = 11; }
+      else if (r.type === 'challenge') { r.w = 19; r.h = 15; }
       else { r.w = rng.pick([15, 17, 19, 21, 23, 25]); r.h = rng.pick([11, 13, 15, 17, 19]); }
       r.x = r.cx * CW + Math.floor((CW - r.w) / 2); r.y = r.cy * CH + Math.floor((CH - r.h) / 2);
       r.mx = r.x + (r.w - 1) / 2; r.my = r.y + (r.h - 1) / 2;
@@ -61,11 +102,11 @@ const World = {
       if (a.cy === b.cy) {
         const L = a.cx < b.cx ? a : b, Rr = L === a ? b : a, y0 = L.my, x0 = L.x + L.w, x1 = Rr.x - 1;
         this.corridor(x0, x1, y0, true, wiggle, cr);
-        for (let y = y0 - 1; y <= y0 + 1; y++) { const i1 = y * MW + x0, i2 = y * MW + x1; map[i1] = map[i2] = DOOR; L.doors.push(i1); Rr.doors.push(i2); }
+        for (let y = y0 - 1; y <= y0 + 1; y++) { const i1 = y * MW + x0, i2 = y * MW + x1; map[i1] = map[i2] = DOOR; L.doors.push(i1); Rr.doors.push(i2); L.doorTo[i1] = Rr.id; Rr.doorTo[i2] = L.id; }
       } else {
         const U = a.cy < b.cy ? a : b, D = U === a ? b : a, x0 = U.mx, y0 = U.y + U.h, y1 = D.y - 1;
         this.corridor(y0, y1, x0, false, wiggle, cr);
-        for (let x = x0 - 1; x <= x0 + 1; x++) { const i1 = y0 * MW + x, i2 = y1 * MW + x; map[i1] = map[i2] = DOOR; U.doors.push(i1); D.doors.push(i2); }
+        for (let x = x0 - 1; x <= x0 + 1; x++) { const i1 = y0 * MW + x, i2 = y1 * MW + x; map[i1] = map[i2] = DOOR; U.doors.push(i1); D.doors.push(i2); U.doorTo[i1] = D.id; D.doorTo[i2] = U.id; }
       }
     }
     // walls hug every walkable tile
@@ -84,7 +125,7 @@ const World = {
       const rr = RNG(hash(Game.seedNum, w * 10 + l, r.id, 7));
       if (r.type === 'combat' || r.type === 'boss' || r.type === 'exit') this.obstacles(r, rr, style);
       if (r.type === 'combat' || r.type === 'exit') this.planWaves(r, rr);
-      if (r.type === 'combat') this.placeTraps(r, RNG(hash(Game.seedNum, w * 10 + l, r.id, 77)), style, l);
+      if (r.type === 'combat') this.placeTraps(r, RNG(hash(Game.seedNum, w * 10 + l, r.id, 77)), style, l, r.route === 'gauntlet');
       r.deco = [];
       for (let i = 0; i < r.w * r.h / 12; i++) r.deco.push({ x: r.x + rr.int(0, r.w - 1), y: r.y + rr.int(0, r.h - 1), k: rr.int(0, 3), a: rr() * TAU, s: rr.range(0.6, 1.2) });
     }
@@ -190,6 +231,61 @@ const World = {
       for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (rng.chance(p)) put(x, y);
     }
   },
+  // ---------- champions: a beefed-up foe with a twist ----------
+  CHAMPS: { armored: { n: 'Armored', c: '#b8c2d4' }, swift: { n: 'Swift', c: '#7fe0ff' }, splitting: { n: 'Splitting', c: '#9fe38a' }, regenerating: { n: 'Regenerating', c: '#ff7a9a' } },
+  champName(e) { return (this.CHAMPS[e.champ] || { n: '' }).n + ' ' + (EDEF[e.type] || { n: '?' }).n + ' Champion'; },
+  makeChampion(rng, x, y, type) {
+    const pool = this.theme.pools[this.level - 1].filter(t => !['blight', 'rat', 'stirge', 'cubeling'].includes(t));
+    type = type || rng.pick(pool.length ? pool : this.theme.pools[this.level - 1]);
+    const mod = rng.pick(Object.keys(this.CHAMPS)), e = this.makeEnemy(type, x, y);
+    e.champ = mod; e.maxHp = e.hp = e.maxHp * 4.5; e.r = Math.round(e.r * 1.35);
+    e.D = Object.assign({}, e.D, { n: this.champName(e), sp: e.D.sp * (mod === 'swift' ? 1.6 : 1.1), touch: (e.D.touch || 1) + 1, embers: (e.D.embers || 1) * 4 });
+    e.spawnT = 0.6; return e;
+  },
+  // ---------- challenge rooms: one chance only ----------
+  startChallenge(r, p) {
+    r.entry = this.entryFor(r, p); this.awayT = 0;
+    const rng = rng0(r), kind = rng.chance(0.5) ? 'survive' : 'hunt';
+    this.locked = true; this.setDoors(r, true, r.entry); Snd.play('door'); Music.target = 1; this.waves = [];
+    this.challenge = { kind, t: kind === 'survive' ? 30 : 25, max: kind === 'survive' ? 30 : 25, spawnT: 0.5, r };
+    if (kind === 'hunt') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); const e = this.makeChampion(rng, s.x, s.y); e.hunted = true; this.enemies.push(e); }
+    Game.banner(kind === 'survive' ? 'Trial: Survive' : 'Trial: The Hunt', kind === 'survive' ? 'Hold out for 30 seconds. Leave and the way collapses.' : 'Slay the champion in 25 seconds. Leave and the way collapses.', 2.6);
+  },
+  updChallenge(dt) {
+    const C = this.challenge; if (!C || this.room !== C.r) return;
+    C.t -= dt;
+    if (C.kind === 'survive') {
+      C.spawnT -= dt;
+      if (C.spawnT <= 0 && C.t > 3) { C.spawnT = 2.6; const pool = this.theme.pools[this.level - 1], r = C.r, n = 2 + Math.floor(this.depth / 3) + this.coopN() - 1, wave = [];
+        for (let i = 0; i < n; i++) wave.push({ type: R.pick(pool), x: (r.x + 2 + R.int(0, r.w - 5)) * T + T / 2, y: (r.y + 2 + R.int(0, r.h - 5)) * T + T / 2 });
+        this.spawnWave(wave); }
+      if (C.t <= 0) this.finishChallenge(true);
+    } else {
+      const champ = this.enemies.find(e => e.hunted);
+      if (!champ || champ.dead) this.finishChallenge(true);
+      else if (C.t <= 0) { this.burst(champ.x, champ.y, 40, '#c9a8ff', 220, 0.6); this.text(champ.x, champ.y - 40, 'The champion escapes', '#c9a8ff'); champ.dead = true; this.finishChallenge(false); }
+    }
+  },
+  finishChallenge(won) {
+    const r = this.challenge.r; this.challenge = null;
+    for (const e of this.enemies) if (!e.dead) { e.dead = true; this.burst(e.x, e.y, 14, e.D.c, 160, 0.4); }
+    this.enemies = []; this.waves = [];
+    this.clearRoom();
+    if (won) {
+      const cx = r.mx * T + T / 2, cy = r.my * T + T / 2, rng = rng0(r), rar = Math.max(2, rollRarity(rng, this.depth + 2, 'boss'));
+      this.pickups.push({ kind: 'weapon', w: makeWeapon(rng, { depth: this.depth + 1, src: 'boss', rarity: rar }), x: cx - 30, y: cy, t: 0 });
+      this.pickups.push({ kind: 'chest', x: cx + 30, y: cy, t: 0, room: r, n: 3 }, { kind: 'stone', x: cx, y: cy + 36, t: 0 });
+      Game.banner('Trial complete', 'Claim your reward', 1.6); Snd.play('portal');
+    } else Game.banner('', 'Trial failed', 1.4);
+  },
+  collapseChallenge(r) { // backed out: the entrance caves in for good
+    this.challenge = null; this.locked = false; this.room = null; r.cleared = true; r.collapsed = true;
+    for (const e of this.enemies) e.dead = true; this.enemies = []; this.waves = [];
+    for (const pr of this.projs) if (pr.owner === 'e') pr.dead = true;
+    for (const i of r.doors) { this.map[i] = WALL; const x = (i % MW) * T + T / 2, y = Math.floor(i / MW) * T + T / 2; this.burst(x, y, 16, '#8a7a6a', 180, 0.6); }
+    const nb = this.rooms[r.entry]; if (nb) for (const i of nb.doors) if (nb.doorTo[i] === r.id) this.map[i] = WALL;
+    Snd.play('heavy'); Render.kick(10); Music.target = 0; Game.banner('', 'The way collapses behind you', 1.6);
+  },
   // ---------- several players ----------
   live(p) { return !!p && !p.dead && !p.downed && !p.inPortal && !p.gone; }, // can act and be hit
   lives() { return this.players.filter(p => this.live(p)); },
@@ -198,9 +294,13 @@ const World = {
   coopN() { return Math.max(1, Game.coopN || 1); },
   // ---------- environmental hazards ----------
   // Placed per room, seeded. Sparse early in a world, more by x-3. Boss and start rooms stay clean.
-  placeTraps(r, rng, style, l) {
-    const ch = ({ crypt: [0.2, 0.35, 0.5], forest: [0.2, 0.35, 0.5], sewer: [0.5, 0.65, 0.8], cave: [0, 0, 0.2] }[style] || [0, 0, 0])[l - 1];
+  placeTraps(r, rng, style, l, heavy) {
+    const ch = heavy ? 1 : ({ crypt: [0.2, 0.35, 0.5], forest: [0.2, 0.35, 0.5], sewer: [0.5, 0.65, 0.8], cave: [0, 0, 0.2] }[style] || [0, 0, 0])[l - 1];
     if (!rng.chance(ch)) return;
+    if (heavy && style !== 'cave') { for (let i = 0; i < 2; i++) this.placeTrapsOnce(r, rng, style, l); return; } // gauntlet: a second layer
+    this.placeTrapsOnce(r, rng, style, l);
+  },
+  placeTrapsOnce(r, rng, style, l) {
     if (style === 'cave') { r.stal = true; return; } // falling stalactites, 1-3 only
     const tr = this.traps, doorT = r.doors.map(i => [i % MW, Math.floor(i / MW)]);
     const base = (x, y) => this.map[y * MW + x] === FLOOR && this.roomId[y * MW + x] === r.id && doorT.every(([dx, dy]) => Math.abs(dx - x) + Math.abs(dy - y) > 3) && (Math.abs(x - r.mx) > 1 || Math.abs(y - r.my) > 1);
@@ -322,7 +422,8 @@ const World = {
     const pool = this.theme.pools[this.level - 1];
     let budget = 2 + Math.ceil(this.depth * 0.6) + rng.int(0, 1) + Math.floor(r.w * r.h / 190) + (r.type === 'exit' ? 4 : 0);
     budget = Math.round(budget * (1 + 0.25 * (this.coopN() - 1))); // a few more foes per extra player
-    const nW = r.type === 'exit' ? 3 : budget >= 7 ? 2 : 1, free = [];
+    if (r.route === 'horde') budget = Math.round(budget * 1.7); else if (r.route === 'elite') budget = Math.round(budget * 0.65);
+    const nW = (r.type === 'exit' ? 3 : budget >= 7 ? 2 : 1) + (r.route === 'horde' ? 1 : 0), free = [];
     for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (this.roomId[y * MW + x] === r.id && this.map[y * MW + x] === FLOOR) free.push([x, y]);
     r.waves = [];
     for (let w = 0; w < nW; w++) {
@@ -342,7 +443,7 @@ const World = {
   // ---------- run setup ----------
   startLevel(w, l, keepPlayers) {
     this.gen(w, l);
-    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.slime = []; this.mark = null; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; this.bossDark = false; this.thorns = new Map(); for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
+    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.slime = []; this.mark = null; this.challenge = null; this.awayT = 0; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; this.bossDark = false; this.thorns = new Map(); for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     this.placeKeyAndChest();
@@ -486,6 +587,8 @@ const World = {
     this.time += dt;
     for (const p of this.players) if (this.live(p)) { this.cur = p; this.updPlayer(p, dt); }
     this.updDowned(dt);
+    if (this.challenge) this.updChallenge(dt);
+    for (const e of this.enemies) if (e.champ === 'regenerating' && !e.dead && e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.025 * dt);
     this.updRooms();
     if (this.room && this.locked) { this.flowT -= dt; if (this.flowT <= 0) { this.flowT = 0.15; this.buildFlow(this.decoy ? [this.decoy] : this.lives()); } }
     this.timeStopT -= dt;
@@ -514,7 +617,7 @@ const World = {
       const alive = this.enemies.filter(e => !e.boss).length;
       if (alive <= 1 && this.waveT <= 0) this.spawnWave(this.waves.shift());
     }
-    if (this.locked && !this.waves.length && !this.enemies.length) this.clearRoom();
+    if (this.locked && !this.challenge && !this.waves.length && !this.enemies.length) this.clearRoom();
   },
 
   updPlayer(p, dt) {
@@ -831,6 +934,7 @@ const World = {
       if (!src.burn && (!this.mark || this.mark.dead) && e.type !== 'banner' && e.type !== 'crystal') { this.mark = e; this.text(e.x, e.y - e.r - 14, 'Marked', '#ff6b6b'); }
       if (this.mark === e) dmg *= 1.25;
     }
+    if (e.champ === 'armored') dmg *= 0.6;
     if (Dev.active('oneHit') && !src.burn) dmg = Math.max(dmg, e.hp + 1);
     if (Dev.active('dmgNums')) this.texts.push({ x: e.x + R.range(-8, 8), y: e.y - e.r - 6, s: String(Math.round(dmg)), c: src.crit ? '#ffe066' : src.burn ? '#ff9a5a' : '#ffffff', life: 0.8 });
     e.hp -= dmg; e.flash = 0.09;
@@ -875,6 +979,10 @@ const World = {
       return;
     }
     e.dead = true;
+    if (e.champ) {
+      if (e.champ === 'splitting') for (const s of [-1, 1]) { const t = this.freeSpot(e.x + s * 18, e.y), m = this.makeEnemy(e.type, t.x, t.y); m.spawnT = 0.15; m.kx = s * 220; this.enemies.push(m); }
+      if (!e.hunted) { const rng = RNG((Math.random() * 1e9) | 0); this.pickups.push({ kind: 'weapon', w: makeWeapon(rng, { depth: this.depth, src: 'boss', rarity: Math.max(2, rollRarity(rng, this.depth + 1, 'boss')) }), x: e.x, y: e.y, t: 0 }); } // elite route payoff: Rare or better
+    }
     if (e.D.split) for (const s of [-1, 1]) { // a cube splits into two smaller ones
       const t = this.freeSpot(e.x + s * 14, e.y), m = this.makeEnemy(e.D.split, t.x, t.y);
       m.spawnT = 0.15; m.kx = s * 220; m.ky = R.range(-60, 60); this.enemies.push(m);
@@ -1394,7 +1502,8 @@ const World = {
 
   // ---------- rooms ----------
   updRooms() {
-    if (this.locked) return;
+    for (const p of this.players) { const r = this.live(p) && this.roomAt(p.x, p.y); if (r && p.inRoom !== r.id) { p.cameFrom = p.inRoom; p.inRoom = r.id; } }
+    if (this.locked) { this.checkAway(); return; }
     const me = this.meP();
     for (const p of [me, ...this.players.filter(q => q !== me)]) {
       if (!this.live(p)) continue;
@@ -1402,9 +1511,22 @@ const World = {
       if (!r) continue;
       if (!r.visited) { r.visited = true; for (const id of r.links) this.rooms[id].known = true; }
       r.known = true;
-      if (!r.cleared && r !== this.room) { this.room = r; this.flowKey = -1; this.pullIn(r, p); this.enterRoom(r); return; }
+      if (!r.cleared && r !== this.room || (r.frozen && !this.locked)) { this.room = r; this.flowKey = -1; this.pullIn(r, p); this.enterRoom(r, p); return; }
       if (p === me && r !== this.room) { this.room = r; this.flowKey = -1; }
     }
+  },
+  // Everyone has stepped out through the open door and moved off: the fight waits for you (or the trial collapses)
+  checkAway() {
+    const r = this.room; if (!r || r.type === 'boss' || r.entry === null || r.entry === undefined) return;
+    const door = this.doorPos(r, r.entry);
+    const away = this.players.filter(q => this.live(q)).every(q => this.roomAt(q.x, q.y) !== r && d2(q.x, q.y, door.x, door.y) > (r.type === 'challenge' ? 40 : 150) ** 2);
+    this.awayT = away ? (this.awayT || 0) + 1 / 60 : 0;
+    if (r.type === 'challenge') { if (this.awayT > 0.3) this.collapseChallenge(r); return; }
+    if (this.awayT < 1.2) return;
+    r.frozen = { enemies: this.enemies.filter(e => !e.dead), waves: this.waves, waveT: this.waveT };
+    this.enemies = []; this.waves = []; this.locked = false; this.room = null; this.hazards = [];
+    for (const pr of this.projs) if (pr.owner === 'e') pr.dead = true;
+    Music.target = 0; this.text(this.meP().x, this.meP().y - 30, 'You fell back', '#c9a8ff');
   },
   pullIn(r, p) { // the doors are about to lock: bring stragglers inside next to whoever walked in
     for (const q of this.players) {
@@ -1423,11 +1545,26 @@ const World = {
       if (p.reviveT >= 3) { p.downed = false; p.hp = 2; p.inv = 2; p.reviveT = 0; this.text(p.x, p.y - 30, 'Revived!', '#9fe38a'); this.burst(p.x, p.y, 30, '#9fe38a', 180, 0.6); Snd.play('heart'); }
     }
   },
-  setDoors(r, shut) { for (const i of r.doors) this.map[i] = shut ? SHUT : DOOR; },
-  enterRoom(r) {
+  setDoors(r, shut, keepTo) { for (const i of r.doors) { if (r.collapsed && r.doorTo[i] === r.entry) continue; this.map[i] = shut && !(keepTo !== undefined && keepTo !== null && r.doorTo[i] === keepTo) ? SHUT : DOOR; } },
+  entryFor(r, p) { // which neighbor did they come from? fall back to the door nearest them
+    if (p && p.cameFrom !== undefined && r.links.includes(p.cameFrom)) return p.cameFrom;
+    let best = null, bd = Infinity;
+    for (const i of r.doors) { const x = (i % MW) * T + T / 2, y = Math.floor(i / MW) * T + T / 2, d = p ? d2(x, y, p.x, p.y) : 0; if (d < bd) { bd = d; best = r.doorTo[i]; } }
+    return best;
+  },
+  doorPos(r, to) { let x = 0, y = 0, n = 0; for (const i of r.doors) if (r.doorTo[i] === to) { x += (i % MW) * T + T / 2; y += Math.floor(i / MW) * T + T / 2; n++; } return n ? { x: x / n, y: y / n } : { x: r.mx * T, y: r.my * T }; },
+  enterRoom(r, p) {
+    if (r.frozen) { // back into a fight you stepped out of: everything is as you left it
+      this.locked = true; this.awayT = 0; this.enemies = r.frozen.enemies; this.waves = r.frozen.waves; this.waveT = r.frozen.waveT; r.frozen = null;
+      for (const e of this.enemies) if (this.roomAt(e.x, e.y) !== r) { const s = this.freeSpot(r.mx * T + T / 2 + R.range(-60, 60), r.my * T + T / 2 + R.range(-40, 40)); e.x = s.x; e.y = s.y; }
+      Snd.play('door'); Music.target = 1; return;
+    }
+    if (r.type === 'challenge') return this.startChallenge(r, p);
     if (r.type === 'combat' || r.type === 'boss' || r.type === 'exit') {
       for (const q of this.players) q.dispReady = true;
-      this.locked = true; this.setDoors(r, true); Snd.play('door'); Music.target = 1;
+      r.entry = r.type === 'boss' ? null : this.entryFor(r, p); this.awayT = 0;
+      this.locked = true; this.setDoors(r, true, r.entry); Snd.play('door'); Music.target = 1;
+      if (r.champion) { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2 - T * 2); this.enemies.push(this.makeChampion(rng0(r), s.x, s.y)); Game.banner('', 'A champion guards this room', 1.6); }
       if (r.type === 'boss') { this.waves = []; this.spawnBoss(r); }
       else if (r.type === 'exit') { this.waves = r.waves.map(w => w.slice()); this.waveT = 0.3; this.spawnWave(this.waves.shift()); Game.banner('', 'The way down is guarded', 1.6); }
       else { this.waves = r.waves.map(w => w.slice()); this.waveT = 0.3; this.spawnWave(this.waves.shift()); }
@@ -1444,6 +1581,8 @@ const World = {
   },
   clearRoom() {
     const r = this.room; this.locked = false; r.cleared = true; this.setDoors(r, false);
+    if (r.route === 'horde') this.pickups.push({ kind: 'half', x: r.mx * T + T / 2, y: r.my * T + T / 2, t: 0 });
+    if (r.route === 'gauntlet') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); if (R.chance(0.4)) this.pickups.push({ kind: 'stone', x: s.x + 16, y: s.y, t: 0 }); if (R.chance(0.35)) this.dropMinor(s.x - 16, s.y); }
     for (const pr of this.projs) if (pr.owner === 'e') pr.dead = true;
     this.hazards = [];
     Snd.play('clear'); Music.target = 0;

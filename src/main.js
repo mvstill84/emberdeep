@@ -66,6 +66,12 @@ const HUD = {
     if (swapY && !tch) { c.textAlign = 'center'; c.fillStyle = 'rgba(233,228,255,0.45)'; c.font = font(11, 600); c.fillText(Input.last === 'pad' ? 'Y to swap' : 'Q to swap', W / 2, swapY); }
     this.minimap(c, W, pad, font);
     Dev.drawHud(c, W, H, font, dt);
+    if (World.challenge) { // trial timer
+      const C = World.challenge, f = clamp(C.t / C.max, 0, 1), bw = 220, x = W / 2 - bw / 2, y = H * 0.2;
+      c.fillStyle = 'rgba(10,6,20,0.75)'; roundRect(c, x - 8, y - 22, bw + 16, 40, 8); c.fill();
+      c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(x, y + 4, bw, 6); c.fillStyle = C.kind === 'survive' ? '#9fe38a' : '#ff5c7a'; c.fillRect(x, y + 4, bw * f, 6);
+      c.textAlign = 'center'; c.fillStyle = '#fff'; c.font = font(13, 800); c.fillText((C.kind === 'survive' ? 'Survive ' : 'Slay the champion ') + Math.ceil(Math.max(0, C.t)) + 's', W / 2, y - 3);
+    }
     Coop.drawHold(c, W, H, font);
     // boss bar
     const b = World.boss;
@@ -230,6 +236,10 @@ const HUD = {
       if (r.visited && World.pickups.some(k => k.kind === 'key' && k.room === r)) { c.fillStyle = '#ffd27a'; c.fillRect(x, y, 4, 4); }
       if (r.type === 'exit') { c.strokeStyle = '#7fd8ff'; c.lineWidth = 1.5; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3.5, 0, TAU); c.stroke(); }
       if (r.type === 'armory') { c.fillStyle = '#ffd27a'; c.beginPath(); c.arc(x + s / 2, y + s / 2, 3, 0, TAU); c.fill(); }
+      if (r.route && !r.visited) routeGlyph(c, r.route, x + s / 2, y + s / 2, { horde: '#ff8a5a', gauntlet: '#ffd27a', elite: '#c38cff' }[r.route], 0.5);
+      if (r.type === 'challenge' && !r.cleared) routeGlyph(c, 'challenge', x + s / 2, y + s / 2, '#ff5c7a', 0.5);
+      if (r.collapsed) { c.strokeStyle = '#8a7a6a'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x + s, y + s); c.moveTo(x + s, y); c.lineTo(x, y + s); c.stroke(); }
+      if (r.frozen) { c.strokeStyle = '#ff6b6b'; c.lineWidth = 1.5; c.strokeRect(x - 1, y - 1, s + 2, s + 2); }
     }
     c.textAlign = 'right'; c.fillStyle = 'rgba(233,228,255,0.6)'; c.font = font(12, 700);
     c.fillText(`${levelLabel(World.world, World.level)} · ${World.theme.n}`, ox + GRID * m + 6, oy + GRID * m + 22);

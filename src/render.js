@@ -51,6 +51,7 @@ const Render = {
     c.setTransform(z, 0, 0, z, W / 2 - this.cam.x * z + sx * this.dpr, H / 2 - this.cam.y * z + sy * this.dpr);
     this.tiles();
     this.hazards();
+    this.signs();
     this.warns();
     this.pickups();
     c.globalCompositeOperation = 'lighter';
@@ -202,6 +203,25 @@ const Render = {
         for (let i = 0; i < 3; i++) c.fillRect(px + 4 + i * 10, py + 2, 3, T - 4);
         this.drawGlow('#ff4d6d', cx, cy, 26, 0.35 * pulse);
         c.globalCompositeOperation = 'source-over';
+      }
+    }
+  },
+  // route signs over the start room's doors, and a warning over trial doors
+  signs() {
+    const c = this.c, tm = World.time;
+    for (const r of World.rooms) {
+      if (!r.visited) continue;
+      for (const id of r.links) {
+        const n = World.rooms[id], kind = r.type === 'start' && n.route ? n.route : n.type === 'challenge' && !n.collapsed && !n.cleared ? 'challenge' : null;
+        if (!kind) continue;
+        const d0 = World.doorPos(r, id), cx = r.mx * T + T / 2, cy = r.my * T + T / 2, dl = Math.hypot(cx - d0.x, cy - d0.y) || 1; // a step inside the room
+        const d = { x: d0.x + (cx - d0.x) / dl * 56, y: d0.y + (cy - d0.y) / dl * 56 }, bob = Math.sin(tm * 2.5 + id) * 2, y = d.y - 8 + bob;
+        const col = { horde: '#ff8a5a', gauntlet: '#ffd27a', elite: '#c38cff', challenge: '#ff5c7a' }[kind];
+        c.fillStyle = 'rgba(12,8,22,0.8)'; c.beginPath(); c.arc(d.x, y, 13, 0, TAU); c.fill();
+        c.strokeStyle = col; c.lineWidth = 2; c.stroke();
+        routeGlyph(c, kind, d.x, y, col);
+        c.fillStyle = col; c.font = '800 10px system-ui'; c.textAlign = 'center';
+        c.fillText({ horde: 'HORDE', gauntlet: 'GAUNTLET', elite: 'ELITE', challenge: 'TRIAL' }[kind], d.x, y + 24);
       }
     }
   },
@@ -445,6 +465,11 @@ const Render = {
       return;
     }
     if (e.air) return;
+    if (e.champ) { // champion aura in its modifier's color
+      const ch = World.CHAMPS[e.champ] || { c: '#fff' };
+      c.globalCompositeOperation = 'lighter'; this.drawGlow(ch.c, e.x, e.y, e.r * 2.6, 0.5 + 0.15 * Math.sin(t * 5)); c.globalCompositeOperation = 'source-over';
+      c.strokeStyle = hexA(ch.c, 0.85); c.lineWidth = 2.5; c.setLineDash([6, 5]); c.lineDashOffset = -t * 20; c.beginPath(); c.arc(e.x, e.y, e.r + 7, 0, TAU); c.stroke(); c.setLineDash([]);
+    }
     if (e.bones > 0) { // bone pile, shaking as it reforms
       const jig = e.bones < 1 ? Math.sin(t * 40) * 2 : 0;
       c.strokeStyle = '#d8d0b8'; c.lineWidth = 2.5; c.beginPath();
@@ -903,6 +928,15 @@ function weaponIcon(c, w, x, y, s, a = -0.8) {
       c.fillStyle = col; c.beginPath(); c.arc(s * 0.08, 0, s * 0.16, 0, TAU); c.fill();
       break;
   }
+  c.restore();
+}
+// small symbols for route types (signs and minimap)
+function routeGlyph(c, kind, x, y, col, s = 1) {
+  c.save(); c.translate(x, y); c.scale(s, s); c.fillStyle = col; c.strokeStyle = col; c.lineWidth = 2;
+  if (kind === 'horde') { for (const [ox, oy] of [[-5, 2], [5, 2], [0, -4]]) { c.beginPath(); c.arc(ox, oy, 3, 0, TAU); c.fill(); } }
+  else if (kind === 'gauntlet') { c.beginPath(); for (let i = -1; i <= 1; i++) { c.moveTo(i * 6 - 3, 5); c.lineTo(i * 6, -5); c.lineTo(i * 6 + 3, 5); } c.fill(); }
+  else if (kind === 'elite') { c.beginPath(); c.moveTo(-7, 4); c.lineTo(-7, -3); c.lineTo(-3, 1); c.lineTo(0, -6); c.lineTo(3, 1); c.lineTo(7, -3); c.lineTo(7, 4); c.closePath(); c.fill(); }
+  else if (kind === 'challenge') { c.beginPath(); c.moveTo(-5, -6); c.lineTo(5, -6); c.lineTo(-5, 6); c.lineTo(5, 6); c.closePath(); c.stroke(); }
   c.restore();
 }
 function itemIcon(c, it, x, y, s) {
