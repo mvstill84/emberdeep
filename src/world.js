@@ -887,7 +887,7 @@ const World = {
     const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1) * (p.relic === 'amulet' ? 1.25 : 1) + (p.relic === 'amulet' ? R() * 0.5 : 0));
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });
-    if (!e.boss && !e.minion && R.chance(0.025)) this.dropMinor(e.x, e.y);
+    if (!e.boss && !e.minion && R.chance(0.015)) this.dropMinor(e.x, e.y);
     if (!e.boss && !e.minion && R.chance(0.015)) this.pickups.push({ kind: 'stone', x: e.x, y: e.y, t: 0 });
     if (e.boss) this.pickups.push({ kind: 'stone', x: e.x + 20, y: e.y, t: 0 });
     if (src.leech && R.chance(0.08)) this.heal(1);
@@ -965,7 +965,8 @@ const World = {
 
   // ---------- enemies ----------
   makeEnemy(type, x, y) {
-    const D = EDEF[type], hpM = (1 + 0.17 * (this.depth - 1)) * ((Game.diff && Game.diff.hp) || 1) * (1 + 0.4 * (this.coopN() - 1));
+    // health keeps pace with how fast players grow (item levels, sharpening, small items), roughly +45% of the start per level
+    const D = EDEF[type], hpM = (1 + 0.45 * (this.depth - 1)) * ((Game.diff && Game.diff.hp) || 1) * (1 + 0.4 * (this.coopN() - 1));
     return { id: ++this.eid, type, D, x, y, r: D.r, hp: D.hp * hpM, maxHp: D.hp * hpM, kx: 0, ky: 0, spawnT: 0.8, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: R.range(0, 2), state: 0, st: 0, cool: R.range(0.8, 2.2), face: 0, strafe: R.chance(0.5) ? 1 : -1, side: R.chance(0.5) ? 1 : -1, ghost: D.ai === 'wraith', raise: R.range(4, 6), dead: false };
   },
   spawnWave(wave) {
@@ -1454,7 +1455,7 @@ const World = {
       if (p.relicCd > 0) { p.relicCd--; if (!p.relicCd && p.relic) this.text(p.x, p.y - 30, relicById(p.relic).n + ' ready', '#ffd27a'); }
       if (p.relic === 'regen' && p.roomsCleared % 3 === 0) this.heal(1, p);
     }
-    if (r.type === 'combat') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); if (R.chance(0.3)) this.dropMinor(s.x - 14, s.y); if (R.chance(0.14)) this.pickups.push({ kind: 'stone', x: s.x + 14, y: s.y, t: 0 }); }
+    if (r.type === 'combat') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); if (R.chance(0.18)) this.dropMinor(s.x - 14, s.y); if (R.chance(0.14)) this.pickups.push({ kind: 'stone', x: s.x + 14, y: s.y, t: 0 }); }
     if (r.type === 'exit') {
       const cx = r.mx * T + T / 2, cy = r.my * T + T / 2;
       this.pickups.push({ kind: 'portal', x: cx, y: cy + T * 2.5, t: 0, last: false });

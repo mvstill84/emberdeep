@@ -298,7 +298,7 @@ const Game = {
   banner(title, sub, dur = 2) { this.bannerData = { title, sub, dur, t: 0 }; },
   // Difficulty per mode. Quick-play is lighter and loot-rich; Campaign is a gear check.
   DIFF: {
-    quick: { hp: 0.85, boss: 1, shot: 1, loot: 1.4, rare: 1.2 },
+    quick: { hp: 1.7, boss: 1, shot: 1, loot: 1.4, rare: 1.2 },
     campaign: { hp: 1.6, boss: 1.5, shot: 1.1, loot: 0.5, rare: 0.6 },
   },
   mode: 'quick', char: null, diff: null, runXp: 0,
