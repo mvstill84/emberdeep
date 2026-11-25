@@ -94,6 +94,19 @@ const Render = {
     for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++) {
       const t = map[y * MW + x]; if (t === VOID) continue;
       const px = x * T, py = y * T;
+      if (t === CHASM) { // a drop into the dark: black, with a lit rim where floor meets it
+        c.fillStyle = '#030206'; c.fillRect(px, py, T, T);
+        const up = map[(y - 1) * MW + x];
+        if (up !== CHASM && up !== WALL) { const g = c.createLinearGradient(0, py, 0, py + T * 0.8); g.addColorStop(0, th.face); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.fillRect(px, py, T, T * 0.8); }
+        c.strokeStyle = hexA(tint, 0.35); c.lineWidth = 2; c.beginPath();
+        if (walk(map[(y - 1) * MW + x])) { c.moveTo(px, py + 1); c.lineTo(px + T, py + 1); }
+        if (walk(map[(y + 1) * MW + x])) { c.moveTo(px, py + T - 1); c.lineTo(px + T, py + T - 1); }
+        if (walk(map[y * MW + x - 1])) { c.moveTo(px + 1, py); c.lineTo(px + 1, py + T); }
+        if (walk(map[y * MW + x + 1])) { c.moveTo(px + T - 1, py); c.lineTo(px + T - 1, py + T); }
+        c.stroke();
+        if ((hash(x, y, 77) & 15) === 0) { c.fillStyle = hexA(tint, 0.25); c.fillRect(px + (hash(x, y, 5) & 15) + 8, py + (hash(x, y, 6) & 15) + 8, 2, 2); }
+        continue;
+      }
       if (t !== WALL) {
         const h = hash(x, y, World.depth) & 7;
         c.fillStyle = h === 0 ? th.floor[2] : h === 1 ? th.floor[1] : th.floor[0];

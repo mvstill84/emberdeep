@@ -195,7 +195,7 @@ const CampScreens = {
       if (it.kind === 'sharpen') { // priced by how sharp your weapon already is
         const w = p.weapons[p.wi], pl = w.plus || 0; it.price = [35, 70, 120][pl] || 0;
         return pl >= 3 ? `<div class="card"><div class="grow"><b style="color:#e8f4ff">Sharpen ${esc(w.name)}</b><small>Already as sharp as it gets (+3)</small></div></div>`
-          : `<div class="card"><div class="grow"><b style="color:#e8f4ff">Sharpen ${esc(w.name)}</b><small>+10% damage, to +${pl + 1}. Swap weapons to sharpen the other one.</small></div><button class="btn" id="m-${k}" ${Game.runEmbers < it.price ? 'disabled' : ''}>${it.price} ◆</button></div>`;
+          : `<div class="card"><div class="grow"><b style="color:#e8f4ff">Sharpen ${esc(w.name)}</b><small>+6% damage, to +${pl + 1}. Swap weapons to sharpen the other one.</small></div><button class="btn" id="m-${k}" ${Game.runEmbers < it.price ? 'disabled' : ''}>${it.price} ◆</button></div>`;
       }
       const D = it.kind === 'potion' ? potionById(it.id) : it.kind === 'relic' ? relicById(it.id) : it.kind === 'minor' ? ITEMS.find(x => x.id === it.id) : null;
       const name = D ? D.n : it.w.name, col = D ? D.c : RARITY[it.w.rarity].c, desc = D ? D.d : `${RARITY[it.w.rarity].n} ${it.w.type} · ${weaponLine(it.w)}`;
@@ -204,7 +204,7 @@ const CampScreens = {
     Menu.html(`<h2>Wandering Merchant</h2><div class="sub">"Embers for wares, friend." You have <span class="ember">${Game.runEmbers}</span> this run. What you don't spend is banked at the end.</div><div class="list">${rows || '<div class="sub">Sold out.</div>'}</div><button class="btn" id="b-leave">Leave</button>`);
     st.forEach((it, k) => Menu.on('m-' + k, () => {
       if (it.sold || Game.runEmbers < it.price) return;
-      if (it.kind === 'sharpen') { const w = p.weapons[p.wi]; if ((w.plus || 0) >= 3) return; Game.runEmbers -= it.price; w.plus = (w.plus || 0) + 1; w.dmg *= 1.1; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus; Snd.play('charge'); Menu.show('merchant'); return; }
+      if (it.kind === 'sharpen') { const w = p.weapons[p.wi]; if ((w.plus || 0) >= 3) return; Game.runEmbers -= it.price; w.plus = (w.plus || 0) + 1; w.dmg *= 1.06; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus; Snd.play('charge'); Menu.show('merchant'); return; }
       Game.runEmbers -= it.price; it.sold = true; Snd.play('item');
       if (it.kind === 'minor') World.takeMinor(p, ITEMS.find(x => x.id === it.id));
       else if (it.kind === 'weapon') World.pickups.push({ kind: 'weapon', w: it.w, x: p.x + 24, y: p.y, t: 0 });

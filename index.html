@@ -55,7 +55,7 @@ input.seed:focus{border-color:#ffb057}
 <div id="rotate"><div class="ph"></div><h2>Turn your phone sideways</h2><div class="sub" style="margin:0">Emberdeep plays in landscape.<br>On iPhone, tap Share then Add to Home Screen for true full screen.</div></div>
 <script>
 'use strict';
-const BUILD = 28;
+const BUILD = 29;
 const PCOL = ['#ffb057', '#6fd3ff', '#c38cff']; // player colors in co-op
 // ===== Core: math, seeded randomness, storage =====
 const TAU = Math.PI * 2;
@@ -731,9 +731,10 @@ const SECRETS = {
 
 // ===== World: level generation, entities, combat =====
 const T = 32, CW = 32, CH = 24, GRID = 6, MW = CW * GRID, MH = CH * GRID;
-const VOID = 0, FLOOR = 1, WALL = 2, PILLAR = 3, DOOR = 4, SHUT = 5;
+const VOID = 0, FLOOR = 1, WALL = 2, PILLAR = 3, DOOR = 4, SHUT = 5, CHASM = 6; // chasm: you can't walk it, but shots and fliers cross
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const solidT = t => t === VOID || t === WALL || t === PILLAR || t === SHUT;
+const walkBlockT = t => solidT(t) || t === CHASM;
 
 // a seeded rng per room, for things that should be the same on every device
 const rng0 = r => RNG(hash(Game.seedNum, World.depth, r.id, 4242));
@@ -820,7 +821,14 @@ const World = {
       else if (r.type === 'exit') { r.w = 25; r.h = 17; }
       else if (r.type === 'start' || r.type === 'armory') { r.w = 13; r.h = 11; }
       else if (r.type === 'challenge') { r.w = 19; r.h = 15; }
-      else { r.w = rng.pick([15, 17, 19, 21, 23, 25]); r.h = rng.pick([11, 13, 15, 17, 19]); }
+      else {
+        // shapes: regular, long one way or the other, or big. Gauntlets lean big and long.
+        r.shape = r.side ? 'normal' : rng.pick(r.route === 'gauntlet' ? ['big', 'big', 'longH', 'longV', 'normal'] : ['normal', 'normal', 'normal', 'longH', 'longV', 'big']);
+        if (r.shape === 'longH') { r.w = rng.pick([27, 29]); r.h = rng.pick([9, 11]); }
+        else if (r.shape === 'longV') { r.w = rng.pick([11, 13]); r.h = rng.pick([19, 21]); }
+        else if (r.shape === 'big') { r.w = rng.pick([27, 29]); r.h = rng.pick([19, 21]); }
+        else { r.w = rng.pick([15, 17, 19, 21, 23, 25]); r.h = rng.pick([11, 13, 15, 17, 19]); }
+      }
       r.x = r.cx * CW + Math.floor((CW - r.w) / 2); r.y = r.cy * CH + Math.floor((CH - r.h) / 2);
       r.mx = r.x + (r.w - 1) / 2; r.my = r.y + (r.h - 1) / 2;
       r.dirs = r.links.map(id => [Math.sign(rooms[id].cx - r.cx), Math.sign(rooms[id].cy - r.cy)]);
@@ -855,6 +863,8 @@ const World = {
       for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (map[y * MW + x] === FLOOR) rid[y * MW + x] = r.id;
       const rr = RNG(hash(Game.seedNum, w * 10 + l, r.id, 7));
       if (r.type === 'combat' || r.type === 'boss' || r.type === 'exit') this.obstacles(r, rr, style);
+      if (r.type === 'combat' && r.route === 'gauntlet') this.obstacles(r, rr, style); // gauntlets: twice the clutter
+      if (r.type === 'combat' && !(w === 1 && l === 1) && rr.chance(r.route === 'gauntlet' ? 0.85 : r.shape !== 'normal' ? 0.35 : 0.1)) this.chasms(r, RNG(hash(Game.seedNum, w * 10 + l, r.id, 61)), r.route === 'gauntlet');
       if (r.type === 'combat' || r.type === 'exit') this.planWaves(r, rr);
       if (r.type === 'combat') this.placeTraps(r, RNG(hash(Game.seedNum, w * 10 + l, r.id, 77)), style, l, r.route === 'gauntlet');
       r.deco = [];
@@ -964,6 +974,16 @@ const World = {
   },
   // ---------- champions: a beefed-up foe with a twist ----------
   CHAMPS: { armored: { n: 'Armored', c: '#b8c2d4' }, swift: { n: 'Swift', c: '#7fe0ff' }, splitting: { n: 'Splitting', c: '#9fe38a' }, regenerating: { n: 'Regenerating', c: '#ff7a9a' } },
+  ABILITIES: { volley: 'Volley', shockwave: 'Shockwave', blink: 'Blink', summon: 'Summoner', slam: 'Quake' },
+  champAbility(e, p, dt) {
+    e.abT -= dt; if (e.abT > 0 || !p || d2(e.x, e.y, p.x, p.y) > 520 * 520) return;
+    e.abT = R.range(4.5, 6.5); const a = Math.atan2(p.y - e.y, p.x - e.x), col = (this.CHAMPS[e.champ] || { c: '#fff' }).c;
+    if (e.ab === 'volley') { for (let i = -2; i <= 2; i++) this.eshot(e.x, e.y, a + i * 0.16, 230, 'orb', 6); Snd.play('eshot'); }
+    else if (e.ab === 'shockwave') { for (let i = 0; i < 12; i++) this.eshot(e.x, e.y, i * TAU / 12 + a, 170, 'orb', 7); this.burst(e.x, e.y, 24, col, 200, 0.5); Snd.play('heavy'); }
+    else if (e.ab === 'blink') { const ang = R() * TAU, s = this.freeSpot(p.x + Math.cos(ang) * 90, p.y + Math.sin(ang) * 90); this.warn(s.x, s.y, e.r + 10, 0.7, 0, 'claw', { onFire: () => { this.burst(e.x, e.y, 16, col, 160, 0.4); e.x = s.x; e.y = s.y; this.burst(e.x, e.y, 16, col, 160, 0.4); } }); }
+    else if (e.ab === 'summon') { const pool = this.theme.pools[this.level - 1]; for (let i = 0; i < 2; i++) { const s = this.freeSpot(e.x + R.range(-50, 50), e.y + R.range(-50, 50)), m = this.makeEnemy(R.pick(pool.filter(t => EDEF[t].cost <= 2)) || pool[0], s.x, s.y); m.minion = true; m.spawnT = 0.5; this.enemies.push(m); } Snd.play('summon'); }
+    else if (e.ab === 'slam') { this.warn(p.x, p.y, 62, 0.9, 1, 'slam'); }
+  },
   champName(e) { return (this.CHAMPS[e.champ] || { n: '' }).n + ' ' + (EDEF[e.type] || { n: '?' }).n + ' Champion'; },
   makeChampion(rng, x, y, type) {
     const pool = this.theme.pools[this.level - 1].filter(t => !['blight', 'rat', 'stirge', 'cubeling'].includes(t));
@@ -971,6 +991,7 @@ const World = {
     const mod = rng.pick(Object.keys(this.CHAMPS)), e = this.makeEnemy(type, x, y);
     e.champ = mod; e.maxHp = e.hp = e.maxHp * 4.5; e.r = Math.round(e.r * 1.35);
     e.D = Object.assign({}, e.D, { n: this.champName(e), sp: e.D.sp * (mod === 'swift' ? 1.6 : 1.1), touch: (e.D.touch || 1) + 1, embers: (e.D.embers || 1) * 4 });
+    e.ab = rng.pick(Object.keys(this.ABILITIES)); e.abT = 2.5; e.D.n += ' · ' + this.ABILITIES[e.ab]; // a move regular foes don't have
     e.spawnT = 0.6; return e;
   },
   // ---------- challenge rooms: one chance only ----------
@@ -1023,6 +1044,40 @@ const World = {
   nearestP(x, y) { let best = null, bd = Infinity; for (const p of this.players) if (this.live(p)) { const d = d2(x, y, p.x, p.y); if (d < bd) { bd = d; best = p; } } return best; },
   meP() { const s = typeof Coop !== 'undefined' && Coop.on ? Coop.slot : 0; return this.players.find(p => p.slot === s) || this.players[0]; },
   coopN() { return Math.max(1, Game.coopN || 1); },
+  // ---------- chasms: gaps in the floor you have to work around ----------
+  chasms(r, rng, heavy) {
+    const map = this.map, rid = this.roomId, inR = i => rid[i] === r.id;
+    const doorT = r.doors.map(i => [i % MW, Math.floor(i / MW)]);
+    const nearDoor = (x, y) => doorT.some(([dx, dy]) => Math.abs(dx - x) + Math.abs(dy - y) <= 3);
+    const tryPattern = kind => {
+      const set = [];
+      const mark = (x, y) => { const i = y * MW + x; if (x > r.x && y > r.y && x < r.x + r.w - 1 && y < r.y + r.h - 1 && inR(i) && map[i] === FLOOR && !nearDoor(x, y)) set.push(i); };
+      if (kind === 'river') { // a band across the room with one or two bridges
+        const across = r.w >= r.h; // band runs across the long axis so you have to find the crossing
+        const len = across ? r.h : r.w, span = across ? r.w : r.h, at = Math.floor(span * rng.range(0.35, 0.65)), thick = rng.int(2, 3);
+        const bridges = []; for (let b = rng.int(1, 2); b > 0; b--) { const c = rng.int(1, len - 4); bridges.push([c, c + 1 + rng.int(0, 1)]); }
+        for (let k = 0; k < len; k++) { if (bridges.some(([a, b]) => k >= a && k <= b)) continue; for (let t = 0; t < thick; t++) { const wob = Math.round(Math.sin(k * 0.7 + r.id) * 0.8); if (across) mark(r.x + at + t + wob, r.y + k); else mark(r.x + k, r.y + at + t + wob); } }
+      } else { // scattered holes
+        for (let h = rng.int(heavy ? 3 : 2, heavy ? 6 : 4); h > 0; h--) {
+          const cx = r.x + 2 + rng.int(0, r.w - 5), cy = r.y + 2 + rng.int(0, r.h - 5), rx = rng.range(1.2, heavy ? 3.2 : 2.4), ry = rng.range(1.2, heavy ? 2.8 : 2.2);
+          for (let y = Math.floor(cy - ry); y <= cy + ry; y++) for (let x = Math.floor(cx - rx); x <= cx + rx; x++) if (((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1) mark(x, y);
+        }
+      }
+      if (!set.length) return false;
+      for (const i of set) map[i] = CHASM;
+      // every door must still reach every other, and most of the floor; islands left over become chasm too
+      const seen = new Uint8Array(MW * MH), q = [r.doors[0]]; seen[r.doors[0]] = 1;
+      const inBox = (x, y) => x >= r.x - 1 && y >= r.y - 1 && x <= r.x + r.w && y <= r.y + r.h;
+      while (q.length) { const i = q.pop(), x = i % MW, y = (i - x) / MW; for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy, j = ny * MW + nx; if (!seen[j] && inBox(nx, ny) && (map[j] === FLOOR || map[j] === DOOR || map[j] === PILLAR)) { seen[j] = 1; q.push(j); } } }
+      let floor = 0, reach = 0; for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) { const i = y * MW + x; if (inR(i) && map[i] === FLOOR) { floor++; if (seen[i]) reach++; } }
+      if (r.doors.some(i => !seen[i]) || reach < floor * 0.7) { for (const i of set) map[i] = FLOOR; return false; }
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) { const i = y * MW + x; if (inR(i) && map[i] === FLOOR && !seen[i]) map[i] = CHASM; }
+      return true;
+    };
+    const kinds = heavy ? ['river', 'holes', 'river'] : ['holes', 'river'];
+    let made = 0; for (const k of kinds) { if (tryPattern(k)) made++; if (!heavy && made) break; }
+    r.chasm = made > 0;
+  },
   // ---------- environmental hazards ----------
   // Placed per room, seeded. Sparse early in a world, more by x-3. Boss and start rooms stay clean.
   placeTraps(r, rng, style, l, heavy) {
@@ -1154,7 +1209,7 @@ const World = {
     let budget = 2 + Math.ceil(this.depth * 0.6) + rng.int(0, 1) + Math.floor(r.w * r.h / 190) + (r.type === 'exit' ? 4 : 0);
     budget = Math.round(budget * (1 + 0.25 * (this.coopN() - 1))); // a few more foes per extra player
     if (r.route === 'horde') budget = Math.round(budget * 1.7); else if (r.route === 'elite') budget = Math.round(budget * 0.65);
-    const nW = (r.type === 'exit' ? 3 : budget >= 7 ? 2 : 1) + (r.route === 'horde' ? 1 : 0), free = [];
+    const nW = (r.type === 'exit' ? 3 : budget >= 7 ? 2 : 1) + (r.route === 'horde' ? 1 : 0) + (r.w * r.h > 500 ? 1 : 0), free = [];
     for (let y = r.y + 1; y < r.y + r.h - 1; y++) for (let x = r.x + 1; x < r.x + r.w - 1; x++) if (this.roomId[y * MW + x] === r.id && this.map[y * MW + x] === FLOOR) free.push([x, y]);
     r.waves = [];
     for (let w = 0; w < nW; w++) {
@@ -1234,7 +1289,7 @@ const World = {
     let hit = false;
     const x0 = Math.floor((e.x - e.r) / T), x1 = Math.floor((e.x + e.r) / T), y0 = Math.floor((e.y - e.r) / T), y1 = Math.floor((e.y + e.r) / T);
     for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
-      if (tx < 0 || ty < 0 || tx >= MW || ty >= MH || solidT(this.map[ty * MW + tx])) {
+      if (tx < 0 || ty < 0 || tx >= MW || ty >= MH || (e.fly ? solidT : walkBlockT)(this.map[ty * MW + tx])) {
         const cx = clamp(e.x, tx * T, tx * T + T), cy = clamp(e.y, ty * T, ty * T + T);
         const dx = e.x - cx, dy = e.y - cy, dd = dx * dx + dy * dy;
         if (dd < e.r * e.r) {
@@ -1267,7 +1322,7 @@ const World = {
     const id = this.roomId[ty * MW + tx]; return id >= 0 ? this.rooms[id] : null;
   },
   freeSpot(x, y) {
-    const okAt = (px, py) => !this.solidAt(px, py) && this.tile(px, py) !== DOOR;
+    const okAt = (px, py) => !this.solidAt(px, py) && this.tile(px, py) !== DOOR && this.tile(px, py) !== CHASM;
     if (okAt(x, y)) return { x, y };
     for (let rad = 1; rad < 6; rad++) for (let a = 0; a < 8; a++) {
       const px = x + Math.cos(a * TAU / 8) * rad * T, py = y + Math.sin(a * TAU / 8) * rad * T;
@@ -1287,7 +1342,7 @@ const World = {
       const i = q[qi], x = i % MW, y = (i - x) / MW;
       for (const [dx, dy] of DIRS) {
         const nx = x + dx, ny = y + dy; if (nx < x0 || nx > x1 || ny < y0 || ny > y1) continue;
-        const j = ny * MW + nx; if (f[j] !== -1 || solidT(this.map[j])) continue;
+        const j = ny * MW + nx; if (f[j] !== -1 || walkBlockT(this.map[j])) continue;
         f[j] = f[i] + 1; q.push(j);
       }
     }
@@ -1484,7 +1539,8 @@ const World = {
     for (let d = 10; d <= 205; d += 10) {
       test.x = x0 + p.rdx * d; test.y = y0 + p.rdy * d;
       const blocked = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([ox, oy]) => this.solidAt(test.x + ox * p.r, test.y + oy * p.r));
-      if (blocked) break; bx = test.x; by = test.y;
+      if (blocked) break;
+      if (![[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([ox, oy]) => this.tile(test.x + ox * p.r, test.y + oy * p.r) === CHASM)) { bx = test.x; by = test.y; }
     }
     this.burst(x0, y0, 16, '#b58bff', 160, 0.4);
     p.x = bx; p.y = by; p.vx = p.vy = 0;
@@ -1727,7 +1783,7 @@ const World = {
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
     if (!e.boss && !e.minion && R.chance(0.035)) this.pickups.push({ kind: 'half', x: e.x, y: e.y, t: 0 });
     if (!e.boss && !e.minion && R.chance(0.015)) this.dropMinor(e.x, e.y);
-    if (!e.boss && !e.minion && R.chance(0.015)) this.pickups.push({ kind: 'stone', x: e.x, y: e.y, t: 0 });
+    if (!e.boss && !e.minion && R.chance(0.007)) this.pickups.push({ kind: 'stone', x: e.x, y: e.y, t: 0 });
     if (e.boss) this.pickups.push({ kind: 'stone', x: e.x + 20, y: e.y, t: 0 });
     if (src.leech && R.chance(0.08)) this.heal(1);
     for (const h of p.hooks.kill) h(e, src);
@@ -1804,9 +1860,9 @@ const World = {
 
   // ---------- enemies ----------
   makeEnemy(type, x, y) {
-    // health keeps pace with how fast players grow (item levels, sharpening, small items), roughly +45% of the start per level
-    const D = EDEF[type], hpM = (1 + 0.45 * (this.depth - 1)) * ((Game.diff && Game.diff.hp) || 1) * (1 + 0.4 * (this.coopN() - 1));
-    return { id: ++this.eid, type, D, x, y, r: D.r, hp: D.hp * hpM, maxHp: D.hp * hpM, kx: 0, ky: 0, spawnT: 0.8, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: R.range(0, 2), state: 0, st: 0, cool: R.range(0.8, 2.2), face: 0, strafe: R.chance(0.5) ? 1 : -1, side: R.chance(0.5) ? 1 : -1, ghost: D.ai === 'wraith', raise: R.range(4, 6), dead: false };
+    // health keeps pace with how fast players grow (item levels, sharpening, small items), roughly +60% of the start per level
+    const D = EDEF[type], hpM = (1 + 0.6 * (this.depth - 1)) * ((Game.diff && Game.diff.hp) || 1) * (1 + 0.4 * (this.coopN() - 1));
+    return { id: ++this.eid, type, fly: FLIERS.has(type), D, x, y, r: D.r, hp: D.hp * hpM, maxHp: D.hp * hpM, kx: 0, ky: 0, spawnT: 0.8, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: R.range(0, 2), state: 0, st: 0, cool: R.range(0.8, 2.2), face: 0, strafe: R.chance(0.5) ? 1 : -1, side: R.chance(0.5) ? 1 : -1, ghost: D.ai === 'wraith', raise: R.range(4, 6), dead: false };
   },
   spawnWave(wave) {
     const r = this.room;
@@ -1964,6 +2020,7 @@ const World = {
       case 'boss': this.updBoss(e, p, dt, toP, dist, go); break;
     }
     if ((mx || my) && !e.boss && this.traps.length) [mx, my] = this.trapSteer(e, mx, my);
+    if (e.champ && e.ab) this.champAbility(e, real, dt);
     if (mx || my) this.move(e, mx * dt, my * dt);
     if (!p.isDecoy && !e.air && dist < e.r + p.r - 2 && p.inv <= 0 && p.roll <= 0.03 && p.blinkInv <= 0 && p.lunge <= 0) {
       if (e.D.engulf) {
@@ -2199,7 +2256,7 @@ const World = {
         this.burst(w.x, w.y, 18, col, w.r * 4, 0.4); Render.kick(w.kind === 'slam' || w.kind === 'boulder' ? 10 : 4);
         Snd.play(w.kind === 'slam' ? 'explode' : 'heavy');
         let hitAny = false;
-        for (const q of this.players) if (this.live(q) && d2(w.x, w.y, q.x, q.y) < (w.r + q.r * 0.5) ** 2) { hitAny = true; this.hurt(q, w.dmg); }
+        if (w.dmg > 0) for (const q of this.players) if (this.live(q) && d2(w.x, w.y, q.x, q.y) < (w.r + q.r * 0.5) ** 2) { hitAny = true; this.hurt(q, w.dmg); }
         if (w.onFire) w.onFire(w, hitAny);
       }
     }
@@ -2313,7 +2370,7 @@ const World = {
   clearRoom() {
     const r = this.room; this.locked = false; r.cleared = true; this.setDoors(r, false);
     if (r.route === 'horde') this.pickups.push({ kind: 'half', x: r.mx * T + T / 2, y: r.my * T + T / 2, t: 0 });
-    if (r.route === 'gauntlet') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); if (R.chance(0.4)) this.pickups.push({ kind: 'stone', x: s.x + 16, y: s.y, t: 0 }); if (R.chance(0.35)) this.dropMinor(s.x - 16, s.y); }
+    if (r.route === 'gauntlet') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); if (R.chance(0.25)) this.pickups.push({ kind: 'stone', x: s.x + 16, y: s.y, t: 0 }); if (R.chance(0.35)) this.dropMinor(s.x - 16, s.y); }
     for (const pr of this.projs) if (pr.owner === 'e') pr.dead = true;
     this.hazards = [];
     Snd.play('clear'); Music.target = 0;
@@ -2325,7 +2382,7 @@ const World = {
       if (p.relicCd > 0) { p.relicCd--; if (!p.relicCd && p.relic) this.text(p.x, p.y - 30, relicById(p.relic).n + ' ready', '#ffd27a'); }
       if (p.relic === 'regen' && p.roomsCleared % 3 === 0) this.heal(1, p);
     }
-    if (r.type === 'combat') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); if (R.chance(0.18)) this.dropMinor(s.x - 14, s.y); if (R.chance(0.14)) this.pickups.push({ kind: 'stone', x: s.x + 14, y: s.y, t: 0 }); }
+    if (r.type === 'combat') { const s = this.freeSpot(r.mx * T + T / 2, r.my * T + T / 2); if (R.chance(0.18)) this.dropMinor(s.x - 14, s.y); if (R.chance(0.08)) this.pickups.push({ kind: 'stone', x: s.x + 14, y: s.y, t: 0 }); }
     if (r.type === 'exit') {
       const cx = r.mx * T + T / 2, cy = r.my * T + T / 2;
       this.pickups.push({ kind: 'portal', x: cx, y: cy + T * 2.5, t: 0, last: false });
@@ -2480,11 +2537,11 @@ const World = {
     const n = p.items.filter(id => id === it.id).length;
     this.text(p.x, p.y - 24, it.n + (n > 1 ? ' ×' + n : '') + ' · ' + it.d, it.c);
   },
-  // Sharpening: +10% damage per step, up to +3. Goes on the weapon in hand, or the other one if that's maxed.
+  // Sharpening: +6% damage per step, up to +3. Goes on the weapon in hand, or the other one if that's maxed.
   sharpen(p, how) {
     const w = [p.weapons[p.wi], ...p.weapons.filter((x, i) => i !== p.wi)].find(x => x && (x.plus || 0) < 3);
     if (!w) { p.embers += 15; Game.runEmbers += 15; this.text(p.x, p.y - 24, 'Both weapons maxed · +15 embers', '#ffb057'); Snd.play('ember'); return false; }
-    w.plus = (w.plus || 0) + 1; w.dmg *= 1.1; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus;
+    w.plus = (w.plus || 0) + 1; w.dmg *= 1.06; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus;
     this.text(p.x, p.y - 24, 'Sharpened: ' + w.name, '#e8f4ff'); Snd.play('charge'); this.burst(p.x, p.y, 20, '#e8f4ff', 160, 0.5);
     return true;
   },
@@ -2718,6 +2775,19 @@ const Render = {
     for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++) {
       const t = map[y * MW + x]; if (t === VOID) continue;
       const px = x * T, py = y * T;
+      if (t === CHASM) { // a drop into the dark: black, with a lit rim where floor meets it
+        c.fillStyle = '#030206'; c.fillRect(px, py, T, T);
+        const up = map[(y - 1) * MW + x];
+        if (up !== CHASM && up !== WALL) { const g = c.createLinearGradient(0, py, 0, py + T * 0.8); g.addColorStop(0, th.face); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.fillRect(px, py, T, T * 0.8); }
+        c.strokeStyle = hexA(tint, 0.35); c.lineWidth = 2; c.beginPath();
+        if (walk(map[(y - 1) * MW + x])) { c.moveTo(px, py + 1); c.lineTo(px + T, py + 1); }
+        if (walk(map[(y + 1) * MW + x])) { c.moveTo(px, py + T - 1); c.lineTo(px + T, py + T - 1); }
+        if (walk(map[y * MW + x - 1])) { c.moveTo(px + 1, py); c.lineTo(px + 1, py + T); }
+        if (walk(map[y * MW + x + 1])) { c.moveTo(px + T - 1, py); c.lineTo(px + T - 1, py + T); }
+        c.stroke();
+        if ((hash(x, y, 77) & 15) === 0) { c.fillStyle = hexA(tint, 0.25); c.fillRect(px + (hash(x, y, 5) & 15) + 8, py + (hash(x, y, 6) & 15) + 8, 2, 2); }
+        continue;
+      }
       if (t !== WALL) {
         const h = hash(x, y, World.depth) & 7;
         c.fillStyle = h === 0 ? th.floor[2] : h === 1 ? th.floor[1] : th.floor[0];
@@ -4412,7 +4482,7 @@ const CampScreens = {
       if (it.kind === 'sharpen') { // priced by how sharp your weapon already is
         const w = p.weapons[p.wi], pl = w.plus || 0; it.price = [35, 70, 120][pl] || 0;
         return pl >= 3 ? `<div class="card"><div class="grow"><b style="color:#e8f4ff">Sharpen ${esc(w.name)}</b><small>Already as sharp as it gets (+3)</small></div></div>`
-          : `<div class="card"><div class="grow"><b style="color:#e8f4ff">Sharpen ${esc(w.name)}</b><small>+10% damage, to +${pl + 1}. Swap weapons to sharpen the other one.</small></div><button class="btn" id="m-${k}" ${Game.runEmbers < it.price ? 'disabled' : ''}>${it.price} ◆</button></div>`;
+          : `<div class="card"><div class="grow"><b style="color:#e8f4ff">Sharpen ${esc(w.name)}</b><small>+6% damage, to +${pl + 1}. Swap weapons to sharpen the other one.</small></div><button class="btn" id="m-${k}" ${Game.runEmbers < it.price ? 'disabled' : ''}>${it.price} ◆</button></div>`;
       }
       const D = it.kind === 'potion' ? potionById(it.id) : it.kind === 'relic' ? relicById(it.id) : it.kind === 'minor' ? ITEMS.find(x => x.id === it.id) : null;
       const name = D ? D.n : it.w.name, col = D ? D.c : RARITY[it.w.rarity].c, desc = D ? D.d : `${RARITY[it.w.rarity].n} ${it.w.type} · ${weaponLine(it.w)}`;
@@ -4421,7 +4491,7 @@ const CampScreens = {
     Menu.html(`<h2>Wandering Merchant</h2><div class="sub">"Embers for wares, friend." You have <span class="ember">${Game.runEmbers}</span> this run. What you don't spend is banked at the end.</div><div class="list">${rows || '<div class="sub">Sold out.</div>'}</div><button class="btn" id="b-leave">Leave</button>`);
     st.forEach((it, k) => Menu.on('m-' + k, () => {
       if (it.sold || Game.runEmbers < it.price) return;
-      if (it.kind === 'sharpen') { const w = p.weapons[p.wi]; if ((w.plus || 0) >= 3) return; Game.runEmbers -= it.price; w.plus = (w.plus || 0) + 1; w.dmg *= 1.1; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus; Snd.play('charge'); Menu.show('merchant'); return; }
+      if (it.kind === 'sharpen') { const w = p.weapons[p.wi]; if ((w.plus || 0) >= 3) return; Game.runEmbers -= it.price; w.plus = (w.plus || 0) + 1; w.dmg *= 1.06; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus; Snd.play('charge'); Menu.show('merchant'); return; }
       Game.runEmbers -= it.price; it.sold = true; Snd.play('item');
       if (it.kind === 'minor') World.takeMinor(p, ITEMS.find(x => x.id === it.id));
       else if (it.kind === 'weapon') World.pickups.push({ kind: 'weapon', w: it.w, x: p.x + 24, y: p.y, t: 0 });
