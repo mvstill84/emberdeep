@@ -63,7 +63,7 @@ const Render = {
       for (let i = 0; i < 4; i++) { c.rotate(TAU / 4); c.beginPath(); c.arc(0, 0, rr, -0.45, 0.45); c.stroke(); c.beginPath(); c.moveTo(rr - 4, 0); c.lineTo(rr + 5, 0); c.stroke(); }
       c.restore(); }
     this.allies();
-    for (const p of World.players) if (!p.dead && !p.inPortal && !p.gone) this.player(p);
+    for (const p of World.players) if (!p.dead && !p.inPortal && !p.gone) { if (p.fallT > 0) { const k = p.fallT / 0.45; this.c.save(); this.c.globalAlpha = k; this.c.translate(p.x, p.y); this.c.scale(k, k); this.c.translate(-p.x, -p.y); this.player(p); this.c.restore(); } else this.player(p); }
     this.fx();
     Dev.drawWorld(c);
     c.setTransform(1, 0, 0, 1, 0, 0);

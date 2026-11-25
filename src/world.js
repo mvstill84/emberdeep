@@ -679,6 +679,7 @@ const World = {
     this.near = p.near || null;
     const inp = Input.read(p.src, p);
     p.inp = inp;
+    if (p.fallT > 0) { p.fallT -= dt; p.inv = Math.max(p.inv, 0.1); if (p.fallT <= 0) this.climbOut(p); return; }
     if (inp.autoAim) { const a = this.autoTarget(p); if (a !== null) p.aim = a; }
     else if (inp.aim !== null) p.aim = inp.assist ? this.assist(p, inp.aim) : inp.aim;
     else if (inp.device !== 'kb' && (inp.mx || inp.my) && !p.charge) p.aim = Math.atan2(inp.my, inp.mx);
@@ -699,17 +700,17 @@ const World = {
     p.swings = p.swings.filter(s => s.t < s.dur + 0.12);
     if (p.lunge > 0) {
       p.lunge -= dt;
-      this.move(p, Math.cos(p.aim) * 520 * dt, Math.sin(p.aim) * 520 * dt);
+      p.fly = true; this.move(p, Math.cos(p.aim) * 520 * dt, Math.sin(p.aim) * 520 * dt); p.fly = false;
       this.part(p.x, p.y, R.range(-20, 20), R.range(-20, 20), 0.3, 3, '#ffd27a', true);
       if (p.lunge <= 0) this.swing(p, p.lungeW, false, true);
       return;
     }
-    if (p.pushX || p.pushY) { this.move(p, p.pushX * dt, p.pushY * dt); const k = Math.exp(-7 * dt); p.pushX *= k; p.pushY *= k; if (Math.abs(p.pushX) + Math.abs(p.pushY) < 5) p.pushX = p.pushY = 0; }
+    if (p.pushX || p.pushY) { p.fly = true; this.move(p, p.pushX * dt, p.pushY * dt); p.fly = false; const k = Math.exp(-7 * dt); p.pushX *= k; p.pushY *= k; if (Math.abs(p.pushX) + Math.abs(p.pushY) < 5) p.pushX = p.pushY = 0; }
     if (p.roll > 0) {
       if (inp.attack && melee) p.lungeQ = true; // attack any time during the roll to lunge out of it
       p.roll -= dt;
       const sp = 340 * (p.roll > 0.12 ? 1 : 0.6);
-      this.move(p, p.rdx * sp * dt, p.rdy * sp * dt);
+      p.fly = true; this.move(p, p.rdx * sp * dt, p.rdy * sp * dt); p.fly = false; // rolls carry you over gaps
       if (R.chance(0.6)) this.part(p.x, p.y, R.range(-20, 20), R.range(-20, 20), 0.35, 3, '#bfe3ff');
       if (p.cls === 'ranger') { p.trapT -= dt; if (p.trapT <= 0) { p.trapT = 0.11; this.caltrop(p); } }
       if (p.roll <= 0) {
@@ -722,13 +723,24 @@ const World = {
         const l = Math.hypot(dx, dy); p.rdx = dx / l; p.rdy = dy / l;
         p.charge = 0; p.slowT = 0; p.lungeQ = false;
         if (p.cls === 'mage') this.blink(p);
-        else { p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.trapT = 0; Snd.play('roll'); }
+        else { if (this.tile(p.x, p.y) === FLOOR) { p.safeX = Math.floor(p.x / T) * T + T / 2; p.safeY = Math.floor(p.y / T) * T + T / 2; p.safeMap = this.map; } p.roll = 0.34; p.rollCd = p.st.rollCd + 0.34; p.trapT = 0; Snd.play('roll'); }
         for (const h of p.hooks.roll) h();
       }
       const sp = p.st.speed * (p.charge > 0 ? 0.68 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.slimed ? 0.6 : 1) * (p.trapSlow || 1);
       const k = 1 - Math.exp(-18 * dt);
       p.vx = lerp(p.vx, inp.mx * sp, k); p.vy = lerp(p.vy, inp.my * sp, k);
-      this.move(p, p.vx * dt, p.vy * dt);
+      // walking into a pit takes a quarter second of pushing, so a thumb slip on the stick doesn't drop you
+      let press = 0;
+      if (Math.abs(inp.mx) > 0.3 && this.tile(p.x + Math.sign(inp.mx) * (p.r + 3), p.y) === CHASM) press = Math.max(press, Math.abs(inp.mx));
+      if (Math.abs(inp.my) > 0.3 && this.tile(p.x, p.y + Math.sign(inp.my) * (p.r + 3)) === CHASM) press = Math.max(press, Math.abs(inp.my));
+      p.edgeT = press ? (p.edgeT || 0) + dt * press : Math.max(0, (p.edgeT || 0) - dt * 3);
+      if (press && R.chance(dt * 14)) this.part(p.x + Math.sign(inp.mx) * p.r, p.y + Math.sign(inp.my) * p.r, R.range(-20, 20), 40, 0.4, 2, '#8a7a6a');
+      p.fly = p.edgeT >= 0.25 || Math.abs(p.pushX) + Math.abs(p.pushY) > 40; this.move(p, p.vx * dt, p.vy * dt); p.fly = false;
+    }
+    if (p.roll <= 0 && p.lunge <= 0) {
+      const tx = Math.floor(p.x / T), ty = Math.floor(p.y / T), t = this.map[ty * MW + tx];
+      if (t === CHASM) { this.fallIn(p); return; }
+      if (t === FLOOR || t === DOOR) { p.safeX = tx * T + T / 2; p.safeY = ty * T + T / 2; p.safeMap = this.map; }
     }
     if (p.buffs.length) { let changed = false; for (const b of p.buffs) { b.t -= dt; if (b.t <= 0) changed = true; } if (changed) { p.buffs = p.buffs.filter(b => b.t > 0); this.recalc(p); } }
     if (p.st.aura) { p.auraT -= dt; if (p.auraT <= 0) { p.auraT = 0.5; this.chain({ x: p.x, y: p.y }, 7 * p.st.dmg, 1, p, p.x, p.y); } }
@@ -1100,7 +1112,24 @@ const World = {
   },
   hasSyn(id) { return this.players.some(p => p.syn.includes(id)); },
 
-  hurt(p, n = 1) {
+  fallIn(p) { // over the edge: a short drop, then you climb out where you last stood
+    p.fallT = 0.45; p.roll = 0; p.lunge = 0; p.charge = 0; p.pushX = p.pushY = 0; p.vx = p.vy = 0; p.edgeT = 0;
+    this.burst(p.x, p.y, 12, '#8a7a6a', 120, 0.4); Snd.play('roll');
+  },
+  climbOut(p) {
+    const ok = p.safeMap === this.map; // a spot from this level, or failing that, back the way you came
+    const s = this.freeSpot(ok ? p.safeX : p.x - (p.rdx || 0) * T * 3, ok ? p.safeY : p.y - (p.rdy || 0) * T * 3); p.x = s.x; p.y = s.y;
+    this.text(p.x, p.y - 24, 'Fell!', '#ffb057'); this.burst(p.x, p.y, 10, '#bfe3ff', 120, 0.4);
+    p.inv = 0; p.blinkInv = 0; this.hurt(p, 1); p.inv = Math.max(p.inv, 1.2);
+  },
+  enemyFall(e) { // shoved into a pit: regular foes are gone, champions climb back out a quarter lighter
+    this.burst(e.x, e.y, 14, '#8a7a6a', 140, 0.5); Snd.play('kill');
+    const s = this.freeSpot(e.x, e.y); e.x = s.x; e.y = s.y; e.kx = e.ky = 0;
+    if (e.champ) { e.hp -= e.maxHp * 0.25; this.text(e.x, e.y - 30, 'Fell!', '#ffb057'); if (e.hp > 0) { e.stun = Math.max(e.stun || 0, 0.8); e.spawnT = 0.3; return; } }
+    this.text(e.x, e.y - 24, 'Fell!', '#ffb057');
+    e.reformed = true; e.hp = 0; this.kill(e, { p: this.cur || this.players[0], blunt: true, pit: true, x: e.x, y: e.y });
+  },
+  hurt(p, n = 1, from) {
     if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.blinkInv > 0 || p.dead || p.downed || p.inPortal || Game.state !== 'play') return;
     if (Dev.active('god')) { this.text(p.x, p.y - 24, 'God mode', '#ff6bd5'); p.inv = 0.4; return; }
     if (p.relic === 'displace' && p.dispReady) { p.dispReady = false; p.inv = 0.8; this.text(p.x, p.y - 24, 'Missed!', '#7fd8ff'); this.burst(p.x, p.y, 14, '#7fd8ff', 160, 0.4); Snd.play('blink'); return; }
@@ -1109,6 +1138,7 @@ const World = {
       return;
     }
     p.hp -= n * (p.st.hurtMult || 1); p.inv = 1.15;
+    if (from) { const a = Math.atan2(p.y - from.y, p.x - from.x); p.pushX = Math.cos(a) * 300; p.pushY = Math.sin(a) * 300; } // hits shove you, pits included
     Snd.play('hurt');
     if (p === this.meP()) { Render.kick(9); Game.hitstop(this.coopN() > 1 ? 0.03 : 0.09); Render.flash = 0.25; } else if (typeof Coop !== 'undefined') Coop.fxTo(p.slot, 'hurt');
     this.burst(p.x, p.y, 20, '#ff4060', 220, 0.5);
@@ -1158,7 +1188,11 @@ const World = {
     if (e.burn > 0) { e.burn -= dt; e.burnTick -= dt; if (e.burnTick <= 0) { e.burnTick = 0.45; this.damage(e, e.burnDmg, { x: e.x, y: e.y, depth: 1, burn: true, elem: 'none' }); this.part(e.x + R.range(-6, 6), e.y, R.range(-15, 15), -60, 0.5, 3, '#ff7a2a', true); } }
     if (e.chill > 0) e.chill -= dt;
     const kd = Math.exp(-9 * dt);
-    if (e.kx || e.ky) { this.move(e, e.kx * dt, e.ky * dt); e.kx *= kd; e.ky *= kd; if (Math.abs(e.kx) + Math.abs(e.ky) < 2) e.kx = e.ky = 0; }
+    if (e.kx || e.ky) {
+      const f0 = e.fly; if (!e.boss) e.fly = true; this.move(e, e.kx * dt, e.ky * dt); e.fly = f0;
+      e.kx *= kd; e.ky *= kd; if (Math.abs(e.kx) + Math.abs(e.ky) < 2) e.kx = e.ky = 0;
+      if (!e.fly && !e.boss && !e.ghost && this.tile(e.x, e.y) === CHASM) { this.enemyFall(e); if (e.dead) return; }
+    }
     if (e.dead || e.bones > 0) return;
     if (e.freeze > 0) { e.freeze -= dt; return; }
     if (e.stun > 0) { e.stun -= dt; return; }
@@ -1296,7 +1330,7 @@ const World = {
         p.slowT = 2.2;
         if (!p.stolen && p.weapons.length > 1 && !e.holding) { p.stolen = { idx: p.wi, t: 5, by: e }; e.holding = p.weapons[p.wi]; p.wi = 1 - p.wi; p.charge = 0; this.text(p.x, p.y - 24, 'Weapon engulfed!', '#6fe3c8'); Snd.play('fizzle'); }
       }
-      this.hurt(p, e.D.touch);
+      this.hurt(p, e.D.touch, e);
     }
   },
   // ---------- bosses: phases, signature mechanics, and move sets per phase ----------
@@ -1934,7 +1968,7 @@ const World = {
         for (const p of this.players) if (this.live(p) && d2(pr.x, pr.y, p.x, p.y) < (pr.r + p.r - 3) ** 2 && p.inv <= 0 && p.roll <= 0.03) {
           pr.dead = true;
           if (p.parryT > 0 || p.lunge > 0) { this.burst(pr.x, pr.y, 6, '#ffffff', 120, 0.25); Snd.play('deflect'); continue; }
-          if (pr.kind === 'web') p.slowT = 1.4; this.hurt(p, 1);
+          if (pr.kind === 'web') p.slowT = 1.4; this.hurt(p, 1, { x: pr.x - pr.vx * 0.05, y: pr.y - pr.vy * 0.05 });
         }
       }
     }

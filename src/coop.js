@@ -193,7 +193,7 @@ const Coop = {
   fxTo(slot, kind) { const p = Net.peers.find(q => q.slot === slot); if (p) Net.send(p, { t: 'fx', k: kind }); },
 
   // ---------- packing the world ----------
-  SKIP: new Set(['D', 'B', 'p', 'hit', 'hitSet', 'hooks', 'inp', 'near', 'lastNear', 'salvK', 'onFire', 'room', 'by', 'target', 'twin', 'parent', 'owner_', 'path', 'link']),
+  SKIP: new Set(['D', 'B', 'p', 'hit', 'hitSet', 'hooks', 'inp', 'near', 'lastNear', 'salvK', 'onFire', 'room', 'by', 'target', 'twin', 'parent', 'owner_', 'path', 'link', 'safeMap']),
   clean(v, depth) {
     if (v === null || v === undefined) return v;
     const t = typeof v;
