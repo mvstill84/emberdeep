@@ -714,6 +714,7 @@ const Render = {
       c.globalCompositeOperation = 'source-over';
     }
     if (e.stun > 0) { c.fillStyle = '#ffe066'; for (let i = 0; i < 3; i++) { const a = t * 6 + i * TAU / 3; c.beginPath(); c.arc(e.x + Math.cos(a) * e.r, e.y - e.r - 4 + Math.sin(a) * 3, 2, 0, TAU); c.fill(); } }
+    if (e.ccImm > 0 && !(e.stun > 0) && !(e.freeze > 0)) { c.strokeStyle = 'rgba(255,224,102,' + (0.25 + 0.2 * Math.sin(t * 12)) + ')'; c.lineWidth = 1.5; c.beginPath(); c.arc(e.x, e.y, e.r + 4, 0, TAU); c.stroke(); } // can't be stunned right now
     if (e.freeze > 0) { c.strokeStyle = 'rgba(190,240,255,0.9)'; c.lineWidth = 2; c.strokeRect(e.x - e.r - 3, e.y - e.r - 3, e.r * 2 + 6, e.r * 2 + 6); }
     if (e.chill > 0 && !e.freeze) { c.globalCompositeOperation = 'lighter'; this.drawGlow('#7fd8ff', e.x, e.y, e.r * 1.6, 0.35); c.globalCompositeOperation = 'source-over'; }
     if (!e.boss && e.hp < e.maxHp) { c.fillStyle = 'rgba(0,0,0,0.6)'; c.fillRect(e.x - 12, e.y - e.r - 10, 24, 3); c.fillStyle = '#ff4d6d'; c.fillRect(e.x - 12, e.y - e.r - 10, 24 * clamp(e.hp / e.maxHp, 0, 1), 3); }

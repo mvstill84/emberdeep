@@ -8,10 +8,10 @@ const ELEM = {
 };
 const RARITY = [
   { n: 'Common', c: '#a3abb5', m: 1 },
-  { n: 'Uncommon', c: '#4ade80', m: 1.15 },
-  { n: 'Rare', c: '#4fa3ff', m: 1.32 },
-  { n: 'Epic', c: '#b26bff', m: 1.52 },
-  { n: 'Legendary', c: '#ff9a2e', m: 1.8 },
+  { n: 'Uncommon', c: '#4ade80', m: 1.07 }, // rarity buys more quirks and elements, only a little raw damage
+  { n: 'Rare', c: '#4fa3ff', m: 1.14 },
+  { n: 'Epic', c: '#b26bff', m: 1.21 },
+  { n: 'Legendary', c: '#ff9a2e', m: 1.3 },
 ];
 // Weapon families. cat: melee | ranged | magic
 const WBASE = {
@@ -42,7 +42,24 @@ const QUIRKS = [
   { id: 'leech', n: 'Leeching', suf: 'of Thirst', d: 'Kills sometimes heal', t: Object.keys(WBASE) },
   { id: 'stun', n: 'Stunning', suf: 'of Thunderclaps', d: 'Hits may stun', t: ['sword', 'axe', 'spear', 'crossbow'] },
   { id: 'keen', n: 'Keen', suf: 'of Precision', d: '+15% crit chance', t: ['sword', 'axe', 'spear', 'bow', 'crossbow'] },
+  { id: 'wide', n: 'Sweeping', suf: 'of the Sweep', d: 'Wider, longer swings', t: ['sword', 'axe', 'hammer', 'spear'] },
+  { id: 'brutal', n: 'Brutal', suf: 'of Butchery', d: 'Crits hit much harder', t: ['sword', 'axe', 'hammer', 'spear', 'bow', 'crossbow'] },
 ];
+// What each foe shrugs off or takes extra from. Physical: slash (swords, axes), pierce (spears, arrows), blunt (hammers, blasts). Nobody is immune.
+const RESIST = {
+  skeleton: { slash: 0.75, pierce: 0.7, blunt: 1.3 }, skelArcher: { slash: 0.75, pierce: 0.7, blunt: 1.3 },
+  zombie: { pierce: 0.75, fire: 1.3 },
+  cube: { blunt: 0.75, frost: 1.3 }, cubeling: { blunt: 0.75, frost: 1.3 },
+  wraith: { slash: 0.8, pierce: 0.8, arcane: 1.3 },
+  blight: { fire: 1.4, slash: 1.2 },
+  spider: { blunt: 1.25, fire: 1.2 },
+  stirge: { pierce: 1.25 },
+  otyugh: { pierce: 0.8, fire: 1.2 }, owlbear: { pierce: 0.8 },
+  sprite: { arcane: 0.7, storm: 1.25 },
+  necro: { arcane: 0.75 },
+  mimic: { pierce: 0.75, fire: 1.3 },
+  crystal: { blunt: 1.3 }, banner: { fire: 1.3 },
+};
 const SYL = ['ka', 'vel', 'mor', 'thra', 'zen', 'ul', 'dra', 'sil', 'nyx', 'or', 'bel', 'cai', 'rhun', 'ae', 'lis', 'gor', 'vash', 'myr', 'ith', 'tal', 'grim', 'uk', 'zar'];
 function properName(rng, n = 2) {
   let s = ''; for (let i = 0; i < n; i++) s += rng.pick(SYL);
@@ -91,12 +108,12 @@ function makeWeapon(rng, opts = {}) {
   if (B.charge) w.charge = rng.range(...B.charge);
   if (B.speed) w.speed = rng.range(...B.speed);
   if (B.spread) w.spread = rng.range(...B.spread);
-  const nq = rar >= 4 ? 2 : rar === 3 ? (rng.chance(0.5) ? 2 : 1) : rar === 2 ? 1 : rar === 1 ? (rng.chance(0.4) ? 1 : 0) : 0;
+  const nq = rar >= 4 ? 3 : rar === 3 ? 2 : rar === 2 ? (rng.chance(0.4) ? 2 : 1) : rar === 1 ? 1 : 0;
   const pool = rng.shuffle(QUIRKS.filter(q => q.t.includes(type)));
   for (let i = 0; i < nq && i < pool.length; i++) w.quirks.push(pool[i].id);
   if (w.quirks.includes('heavy')) { w.dmg *= 1.35; w.cd *= 1.3; }
   // item level: where it dropped. Deeper finds hit harder, so even a gray from 3-1 beats one from 1-1
-  w.ilvl = opts.ilvl || opts.depth || 1; w.dmg *= 1 + 0.1 * (w.ilvl - 1);
+  w.ilvl = opts.ilvl || opts.depth || 1; w.dmg *= 1 + 0.06 * (w.ilvl - 1);
   if (w.quirks.includes('swift')) w.cd /= 1.3;
   if (w.quirks.includes('keen')) w.crit += 0.15;
   const base = rng.pick(B.names), el = ELEM[w.elem].n;

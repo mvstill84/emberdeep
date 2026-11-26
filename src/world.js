@@ -475,7 +475,7 @@ const World = {
   },
   planWaves(r, rng) {
     const pool = this.theme.pools[this.level - 1];
-    let budget = 2 + Math.ceil(this.depth * 0.6) + rng.int(0, 1) + Math.floor(r.w * r.h / 190) + (r.type === 'exit' ? 4 : 0);
+    let budget = 2 + Math.ceil(this.depth * 0.85) + rng.int(0, 1) + Math.floor(r.w * r.h / 190) + (r.type === 'exit' ? 4 : 0);
     budget = Math.round(budget * (1 + 0.25 * (this.coopN() - 1))); // a few more foes per extra player
     if (r.route === 'horde') budget = Math.round(budget * 1.7); else if (r.route === 'elite') budget = Math.round(budget * 0.65);
     const nW = (r.type === 'exit' ? 3 : budget >= 7 ? 2 : 1) + (r.route === 'horde' ? 1 : 0) + (r.w * r.h > 500 ? 1 : 0), free = [];
@@ -498,7 +498,7 @@ const World = {
   // ---------- run setup ----------
   startLevel(w, l, keepPlayers) {
     this.gen(w, l);
-    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.slime = []; this.mark = null; this.challenge = null; this.awayT = 0; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; this.bossDark = false; this.thorns = new Map(); for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
+    this.enemies = []; this.projs = []; this.parts = []; this.pickups = []; this.bolts = []; this.texts = []; this.hazards = []; this.slime = []; this.mark = null; this.resSeen = new Set(); this.challenge = null; this.awayT = 0; this.zones = []; this.warns = []; this.ptraps = []; this.lastHit = null; this.timeStopT = 0; this.decoy = null; this.gnome = null; this.bossDark = false; this.thorns = new Map(); for (const q of this.players) q.relicCd = 0; this.near = null; this.lastNear = null;
     this.locked = false; this.waves = []; this.boss = null; this.room = null;
     const s = this.rooms[0];
     this.placeKeyAndChest();
@@ -870,7 +870,7 @@ const World = {
     }
     return best === null ? a : best;
   },
-  critRoll(p, w) { return R.chance((w.crit || 0) + p.st.crit) ? p.st.critMult : 1; },
+  critRoll(p, w) { return R.chance((w.crit || 0) + p.st.crit) ? p.st.critMult + (hasQ(w, 'brutal') ? 0.75 : 0) : 1; },
   twinM(w) { return hasQ(w, 'twin') ? 0.6 : 1; }, // Twin: two shots at 60% each
   shotCount(p, w) { return 1 + p.st.extraShots + (hasQ(w, 'twin') ? 1 : 0); },
   mkProj(p, w, a, o) {
@@ -925,7 +925,7 @@ const World = {
     Render.kick(2);
   },
   swing(p, w, echo, lunge) {
-    const reach = w.reach * p.st.reach * (lunge ? 1.15 : 1), arc = lunge ? Math.max(w.arc, 1.6) : w.arc, a = p.aim, type = w.type, cm = this.critRoll(p, w);
+    const wide = hasQ(w, 'wide') ? 1.25 : 1, reach = w.reach * p.st.reach * (lunge ? 1.15 : 1) * wide, arc = (lunge ? Math.max(w.arc, 1.6) : w.arc) * wide, a = p.aim, type = w.type, cm = this.critRoll(p, w);
     const dmg = w.dmg * p.st.dmg * p.st.meleeDmg * (echo ? 0.45 : 1) * (lunge ? 1.6 : 1) * cm;
     if (lunge) { Render.kick(5); this.burst(p.x + Math.cos(a) * reach * 0.6, p.y + Math.sin(a) * reach * 0.6, 14, '#ffd27a', 200, 0.35); }
     p.swingDir = -p.swingDir;
@@ -1003,11 +1003,21 @@ const World = {
       if (this.mark === e) dmg *= 1.25;
     }
     if (e.champ === 'armored') dmg *= 0.6;
+    const res = RESIST[e.type];
+    if (res) { // resistances and weak spots, capped so nothing gets silly
+      const phys = src.melee ? { sword: 'slash', axe: 'slash', spear: 'pierce', hammer: 'blunt' }[src.wtype] : src.proj ? (src.proj.kind === 'wave' ? 'slash' : src.proj.wcat === 'ranged' ? 'pierce' : null) : src.blunt ? 'blunt' : null;
+      const el = src.burn ? 'fire' : src.elem;
+      const m = clamp((res[phys] || 1) * (res[el] || 1) * (src.extraElem && src.extraElem !== el ? res[src.extraElem] || 1 : 1), 0.6, 1.6);
+      if (m !== 1 && !src.burn) { const k = e.type + (m > 1 ? '+' : '-'); if (!this.resSeen.has(k)) { this.resSeen.add(k); this.text(e.x, e.y - e.r - 18, m > 1 ? 'Weak!' : 'Resisted', m > 1 ? '#9fe38a' : '#b8b8c8'); } }
+      dmg *= m;
+    }
+    // a regular foe at full health can't be taken out by one ordinary hit; crits still can
+    if (!e.boss && !src.crit && !src.burn && e.hp >= e.maxHp - 0.01) dmg = Math.min(dmg, e.maxHp * 0.6);
     if (Dev.active('oneHit') && !src.burn) dmg = Math.max(dmg, e.hp + 1);
     if (Dev.active('dmgNums')) this.texts.push({ x: e.x + R.range(-8, 8), y: e.y - e.r - 6, s: String(Math.round(dmg)), c: src.crit ? '#ffe066' : src.burn ? '#ff9a5a' : '#ffffff', life: 0.8 });
     e.hp -= dmg; e.flash = 0.09;
     if (src.crit) this.text(e.x, e.y - e.r - 6, Math.round(dmg) + '!', '#ffd27a');
-    if (src.stun) e.stun = Math.max(e.stun || 0, src.stun * (e.boss ? 0.12 : 1));
+    if (src.stun && !(e.ccImm > 0)) { const s = src.stun * (e.boss ? 0.12 : 1); e.stun = Math.max(e.stun || 0, s); e.ccImm = s + 2; } // then two seconds where stuns and freezes slide off
     let kx, ky;
     if (src.proj) { const l = Math.hypot(src.proj.vx, src.proj.vy) || 1; kx = src.proj.vx / l; ky = src.proj.vy / l; }
     else { const l = Math.hypot(e.x - src.x, e.y - src.y) || 1; kx = (e.x - src.x) / l; ky = (e.y - src.y) / l; }
@@ -1017,7 +1027,7 @@ const World = {
       const K = src.melee ? ({ sword: [130, 0.15], spear: [190, 0.22], axe: [260, 0.3], hammer: [360, 0.42] }[src.wtype] || [160, 0.15]) : src.blunt ? [260, 0.2] : [70, 0];
       const heavy = (e.D.hp > 70 ? 0.5 : 1) * (src.melee && p.cls === 'fighter' ? 1.3 : 1);
       e.kx += kx * K[0] * heavy; e.ky += ky * K[0] * heavy;
-      if (K[1]) e.stagger = Math.max(e.stagger || 0, K[1] * heavy);
+      if (K[1]) e.stagger = Math.max(e.stagger || 0, K[1] * heavy * (e.ccImm > 0 && !(e.stun > 0) ? 0.5 : 1));
     }
     this.burst(e.x, e.y, 3, e.D.c, 110, 0.3);
     Snd.play('hit');
@@ -1029,7 +1039,7 @@ const World = {
       if (src.extraElem) elems.add(src.extraElem);
       const mg = p.cls === 'mage';
       if (elems.has('fire')) { e.burn = 2.6 * pow * (mg ? 1.5 : 1); e.burnDmg = Math.max(e.burnDmg || 0, 3 * p.st.dmg * pow); }
-      if (elems.has('frost')) { e.chill = 1.8 * pow; if (R.chance((e.boss ? 0.02 : 0.12) * pow * (mg ? 2 : 1))) e.freeze = 1.1; }
+      if (elems.has('frost')) { e.chill = 1.8 * pow; if (!(e.ccImm > 0) && R.chance((e.boss ? 0.02 : 0.12) * pow * (mg ? 2 : 1))) { e.freeze = 1.1; e.ccImm = 3.1; } }
       if (elems.has('storm') && depth < 2 && R.chance(0.3 * pow)) this.chain(e, dmg * 0.5, depth + 1, p, e.x, e.y, mg ? 3 : 2);
       if (this.hasSyn('steam') && e.burn > 0 && e.chill > 0 && !src.steam && depth < 3) {
         e.burn = 0; e.chill = 0; this.explode(e.x, e.y, 60, dmg * 0.9 + 8 * p.st.dmg, depth + 1, '#e8f6ff', { steam: true });
@@ -1159,8 +1169,8 @@ const World = {
 
   // ---------- enemies ----------
   makeEnemy(type, x, y) {
-    // health keeps pace with how fast players grow (item levels, sharpening, small items), roughly +60% of the start per level
-    const D = EDEF[type], hpM = (1 + 0.6 * (this.depth - 1)) * ((Game.diff && Game.diff.hp) || 1) * (1 + 0.4 * (this.coopN() - 1));
+    // health keeps pace with how fast players grow (item levels, sharpening, small items), roughly +45% of the start per level; deeper rooms also bring more of them
+    const D = EDEF[type], hpM = (1 + 0.45 * (this.depth - 1)) * ((Game.diff && Game.diff.hp) || 1) * (1 + 0.4 * (this.coopN() - 1));
     return { id: ++this.eid, type, fly: FLIERS.has(type), D, x, y, r: D.r, hp: D.hp * hpM, maxHp: D.hp * hpM, kx: 0, ky: 0, spawnT: 0.8, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: R.range(0, 2), state: 0, st: 0, cool: R.range(0.8, 2.2), face: 0, strafe: R.chance(0.5) ? 1 : -1, side: R.chance(0.5) ? 1 : -1, ghost: D.ai === 'wraith', raise: R.range(4, 6), dead: false };
   },
   spawnWave(wave) {
@@ -1183,7 +1193,7 @@ const World = {
   updEnemy(e, dt) {
     if (e.dead) return;
     if (e.spawnT > 0) { e.spawnT -= dt; return; }
-    e.flash -= dt; e.t += dt;
+    e.flash -= dt; e.t += dt; if (e.ccImm > 0) e.ccImm -= dt;
     if (e.bones > 0) { e.bones -= dt; if (e.bones <= 0) { e.flash = 0.2; this.burst(e.x, e.y, 10, '#e8e2cf', 120, 0.3); Snd.play('spawn'); } return; }
     if (e.burn > 0) { e.burn -= dt; e.burnTick -= dt; if (e.burnTick <= 0) { e.burnTick = 0.45; this.damage(e, e.burnDmg, { x: e.x, y: e.y, depth: 1, burn: true, elem: 'none' }); this.part(e.x + R.range(-6, 6), e.y, R.range(-15, 15), -60, 0.5, 3, '#ff7a2a', true); } }
     if (e.chill > 0) e.chill -= dt;
