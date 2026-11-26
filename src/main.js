@@ -39,10 +39,12 @@ const HUD = {
       groups.forEach((g, i) => { const x = pad + 11 + (i % 10) * 24, y = pad + 66 + Math.floor(i / 10) * 24; itemIcon(c, g.it, x, y, g.it.minor ? 8 : 10); if (g.n > 1) { c.font = font(10, 800); c.textAlign = 'right'; c.fillStyle = '#fff'; c.fillText(g.n, x + 11, y + 11); } });
     }
     // weapons + mana: top center on every device, so mana is always where your eyes are
-    const tch = Input.last === 'touch', by = pad - 4;
+    // on touch it sits at the bottom between the stick and the buttons, so it never covers where you're heading
+    const tch = Input.last === 'touch', by = tch ? H - pad - 62 : pad - 4;
     let swapY = 0;
-    const order = p.weapons.map((w, i) => i).sort((a, b) => (b === p.wi) - (a === p.wi)); // active first
+    const order = p.weapons.map((w, i) => i).sort((a, b) => (b === p.wi) - (a === p.wi)).filter(i => !tch || i === p.wi); // active first; touch shows the other one on SWAP
     let yCur = by;
+    if (tch) this.manaBar(c, W, by - 18, p, p.weapons[p.wi], font);
     order.forEach((i, n) => {
       const w = p.weapons[i], active = i === p.wi; c.font = font(active ? 15 : 13, 800);
       const h = active ? 62 : 40, ww = clamp(c.measureText(w.name).width + 70, active ? 250 : 210, Math.min(420, W - 40)), bx = (W - ww) / 2, y = yCur;
@@ -58,7 +60,7 @@ const HUD = {
         const bar = (f, col) => { c.fillStyle = 'rgba(255,255,255,0.15)'; c.fillRect(bx + 50, y + 51, ww - 64, 5); c.fillStyle = col; c.fillRect(bx + 50, y + 51, (ww - 64) * clamp(f, 0, 1), 5); };
         if (w.type === 'bow' && p.charge > 0) bar(p.charge, p.charge >= 1 ? '#fff' : ELEM[w.elem].c);
         if (w.type === 'spellbook') { const f = 1 - clamp((w.cdT || 0) / (w.cd / p.st.rate), 0, 1); bar(f, f >= 1 ? '#ffffff' : ELEM[w.elem].c); }
-        yCur += h + 6; yCur = this.manaBar(c, W, yCur, p, w, font) + 6;
+        yCur += h + 6; if (!tch) yCur = this.manaBar(c, W, yCur, p, w, font) + 6;
       } else { yCur += h + 6; swapY = yCur + 10; }
     });
     if (p.weapons.length < 2) swapY = 0;
@@ -76,7 +78,7 @@ const HUD = {
     // boss bar
     const b = World.boss;
     if (b && b.spawnT <= 0) {
-      const bw = Math.min(520, W * 0.6), x = (W - bw) / 2, y = H - pad - 30;
+      const bw = Math.min(520, W * 0.6), x = (W - bw) / 2, y = tch ? pad + 24 : H - pad - 30; // touch: up top, where the weapon panel used to be
       c.fillStyle = 'rgba(10,6,20,0.8)'; roundRect(c, x - 4, y - 4, bw + 8, 18, 6); c.fill();
       c.fillStyle = b.invuln ? '#7dff7a' : b.vuln > 0 ? '#ffe066' : b.D.c; c.fillRect(x, y, bw * clamp(b.hp / b.maxHp, 0, 1), 10);
       if (b.B && !b.twin && b.type === 'boss') for (const th of World.phaseThresholds()) { if ((b.phase || 1) >= 3) break; c.fillStyle = '#12061f'; c.fillRect(x + bw * th - 1.5, y - 2, 3, 14); }
@@ -84,8 +86,9 @@ const HUD = {
     }
     // nearby pickup card
     const k = World.near;
-    const key = Input.last === 'touch' ? 'Tap USE' : Input.last === 'pad' ? 'X' : 'E';
-    const hold = Input.last === 'touch' ? 'hold USE' : Input.last === 'pad' ? 'hold X' : 'hold E';
+    const lbl = useLabel(k), btn = Input.last === 'touch' ? lbl.toUpperCase() : Input.last === 'pad' ? 'X' : 'E';
+    const key = Input.last === 'touch' ? 'Tap ' + btn : btn + ' to ' + lbl;
+    const hold = 'hold ' + btn;
     const bagKey = Input.last === 'touch' ? 'BAG' : Input.last === 'pad' ? 'D-pad ↓' : 'V';
     this.salvHint = k && (k.kind === 'weapon' || k.kind === 'relic') ? (World.canSalvage(k) ? `  ·  ${hold} to salvage for ${World.salvageValue(k)} embers` : '  ·  from your stash') + (World.canBag() ? `  ·  ${bagKey} to ${World.canSalvage(k) ? 'bag it' : 'send back'}` : '') : '';
     if (k && k.kind === 'weapon') this.compare(c, W, H, p, k.w, key, font);
@@ -167,7 +170,7 @@ const HUD = {
     };
     const h = Math.max(card(cur, x0, 'EQUIPPED', null), card(nw, x1, 'NEW', cur));
     c.textAlign = 'center'; c.fillStyle = '#ffb057'; c.font = font(12, 800);
-    c.fillText(`${key} to ${cur ? 'swap' : 'take'}${this.salvHint || ''}`, W / 2, y + h + 18);
+    c.fillText(`${key}${cur ? ' (swaps with yours)' : ''}${this.salvHint || ''}`, W / 2, y + h + 18);
   },
   // Mana is shared by every wand and staff, so it gets its own bar. Length follows the pool, one tick per 10.
   manaBar(c, W, y, p, w, font) {
@@ -273,8 +276,14 @@ const HUD = {
       c.beginPath(); c.arc(b.x, b.y, b.r, 0, TAU); c.fill();
       c.strokeStyle = b.id === 'attack' ? 'rgba(255,200,140,0.7)' : 'rgba(233,228,255,0.4)'; c.lineWidth = b.id === 'attack' ? 2.5 : 1.5; c.stroke();
       if (b.id === 'attack') { weaponIcon(c, w, b.x, b.y, b.r * 1.0, -0.8); continue; }
+      if (b.id === 'swap') { // shows what you'd swap to
+        weaponIcon(c, p.weapons[1 - p.wi], b.x, b.y - b.r * 0.12, b.r * 0.85, -0.8);
+        c.fillStyle = '#f4eeff'; c.textAlign = 'center'; c.font = `800 ${Math.round(b.r * 0.3)}px ui-rounded, system-ui, sans-serif`; c.fillText('SWAP', b.x, b.y + b.r * 0.72); continue;
+      }
+      const label = { roll: p.cls === 'mage' ? 'BLINK' : 'ROLL', use: useLabel(World.near).toUpperCase(), bag: 'BAG', pause: 'II' }[b.id];
       c.fillStyle = '#f4eeff'; c.textAlign = 'center'; c.font = `800 ${Math.round(b.r * 0.42)}px ui-rounded, system-ui, sans-serif`;
-      c.fillText({ roll: p.cls === 'mage' ? 'BLINK' : 'ROLL', swap: 'SWAP', use: 'USE', bag: 'BAG', pause: 'II' }[b.id], b.x, b.y + b.r * 0.15);
+      const tw = c.measureText(label).width; if (tw > b.r * 1.7) c.font = `800 ${Math.round(b.r * 0.42 * b.r * 1.7 / tw)}px ui-rounded, system-ui, sans-serif`;
+      c.fillText(label, b.x, b.y + b.r * 0.15);
     }
   },
 };
@@ -294,6 +303,11 @@ function wrapText(c, s, w, max) {
   return out;
 }
 function fitText(c, s, w) { if (c.measureText(s).width <= w) return s; while (s.length > 3 && c.measureText(s + '…').width > w) s = s.slice(0, -1); return s + '…'; }
+// what the use button does right now
+function useLabel(k) {
+  if (!k) return 'use';
+  return { merchant: 'talk', chest: 'open', lockchest: 'open', portal: 'enter', corpse: 'recover' }[k.kind] || 'pick up';
+}
 function weaponLine(w) {
   const dmg = Math.round(w.dmg), spd = (1 / w.cd).toFixed(1);
   const el = (w.elem !== 'none' ? ' · ' + w.elem : '') + (w.ilvl ? ' · iLvl ' + w.ilvl : '');
@@ -511,10 +525,9 @@ const Menu = {
       const p = World.meP();
       const items = p.items.map((id, i) => ({ it: ITEMS.find(x => x.id === id), i })).filter((o, k, a) => !o.it.minor || a.findIndex(q => q.it.id === o.it.id) === k).map(({ it, i }) => { const n = p.items.filter(x => x === it.id).length; return `<div class="card"><div class="grow"><b style="color:${it.c}">${it.n}${it.minor && n > 1 ? ' ×' + n : ''}</b><small>${it.d}${it.minor && n > 1 ? ' each' : ''}</small></div><button class="btn" id="drop-${i}">Drop${it.minor && n > 1 ? ' one' : ''}</button></div>`; }).join('');
       const syn = p.syn.map(id => SYNERGIES.find(s => s.id === id)).map(s => `<div class="card"><div class="grow"><b class="secret">✦ ${s.n}</b><small>${s.d}</small></div></div>`).join('');
-      this.html(`<h2>Paused${Coop.on && Coop.pausedBy ? ' by ' + Coop.pausedBy : ''}</h2><div class="sub"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
+      this.html(`<h2>Paused${Coop.on && Coop.pausedBy ? ' by ' + Coop.pausedBy : ''}</h2><button class="btn" id="b-res">Resume</button><div class="sub" style="margin-top:10px"><b>${World.theme.n}</b> · Level ${levelLabel(World.world, World.level)}<br>Seed <b>${Game.seed}</b> · ${fmtTime(Game.runTime)}</div>
         <div class="stats" style="grid-template-columns:auto auto auto auto;max-width:540px;font-size:14px">${statBlock(p)}</div>
         <div class="list">${syn}${items || '<div class="sub">No items yet.</div>'}</div>${bagHtml()}
-        <button class="btn" id="b-res">Resume</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-mute">${M.muted ? 'Sound: Off' : 'Sound: On'}</button></div>
         ${Coop.on && Coop.host && NetTest.qrMode ? '<button class="btn small" id="b-qinv">Invite a player (QR)</button>' : ''}<button class="btn small" id="b-quit">${Coop.on && !Coop.host ? 'Leave Game' : Coop.on ? 'End Run for Everyone' : 'Abandon Run'}</button>${Dev.pausePanel()}`);
       Dev.bindPause();

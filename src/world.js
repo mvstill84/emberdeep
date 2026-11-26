@@ -1418,7 +1418,7 @@ const World = {
         if (e.sub <= 0 && e.n < (late ? 3 : 2)) {
           e.sub = 0.5; e.n++;
           const tx = p.x + R.range(-40, 40), ty = p.y + R.range(-40, 40);
-          this.warn(tx, ty, 30, 1.0, 2, 'boulder', { onFire: (w, hitAny) => { const ix = Math.floor(w.x / T), iy = Math.floor(w.y / T), i = iy * MW + ix; if (!hitAny && this.map[i] === FLOOR && this.roomId[i] >= 0) { this.map[i] = PILLAR; this.thp.set(i, 3); this.flowKey = -1; } } });
+          this.warn(tx, ty, 30, 1.0, 1, 'boulder', { onFire: (w, hitAny) => { const ix = Math.floor(w.x / T), iy = Math.floor(w.y / T), i = iy * MW + ix; if (!hitAny && this.map[i] === FLOOR && this.roomId[i] >= 0) { this.map[i] = PILLAR; this.thp.set(i, 3); this.flowKey = -1; } } });
           Snd.play('whoosh');
         }
         break;
@@ -1460,7 +1460,7 @@ const World = {
         }
         break;
       case 'swipe':
-        if (e.n === 0) { e.n = 1; e.face = toP; this.warn(e.x + Math.cos(toP) * 52, e.y + Math.sin(toP) * 52, 58, 0.42, 2, 'claw'); }
+        if (e.n === 0) { e.n = 1; e.face = toP; this.warn(e.x + Math.cos(toP) * 52, e.y + Math.sin(toP) * 52, 58, 0.42, 1, 'claw'); }
         break;
       case 'screech': // pushes you back and fills the air with feathers
         if (e.sub <= 0 && e.n < 2) {
@@ -1549,7 +1549,7 @@ const World = {
   spawnBoss(r) {
     const rng = RNG(hash(Game.seedNum, this.world, 909)), B = (Game.devBoss && this.theme.bosses.find(b => b.id === Game.devBoss)) || rng.pick(this.theme.bosses);
     const hp = (640 + 150 * this.depth) * ((Game.diff && Game.diff.boss) || 1) * (1 + 0.55 * (this.coopN() - 1));
-    const D = { hp, r: B.r || 30, sp: 38, c: B.c, ai: 'boss', touch: 2, embers: 0 };
+    const D = { hp, r: B.r || 30, sp: 38, c: B.c, ai: 'boss', touch: 1, embers: 0 }; // bosses hit for half a heart; only the big telegraphed moves take a whole one
     const e = { id: ++this.eid, bid: B.id, type: 'boss', D, B, boss: true, look: B.look, x: r.mx * T + T / 2, y: (r.my - 2) * T + T / 2, r: D.r, hp, maxHp: hp, kx: 0, ky: 0, spawnT: 1.4, flash: 0, burn: 0, burnTick: 0, chill: 0, freeze: 0, stun: 0, bones: 0, t: 0, state: 0, cool: 1.5, face: Math.PI / 2, dead: false, phase: 1, vuln: 0 };
     e.name = properName(rng, 2); e.title = B.title;
     this.boss = e; this.enemies.push(e);

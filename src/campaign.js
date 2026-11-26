@@ -198,10 +198,11 @@ const CampScreens = {
           : `<div class="card"><div class="grow"><b style="color:#e8f4ff">Sharpen ${esc(w.name)}</b><small>+6% damage, to +${pl + 1}. Swap weapons to sharpen the other one.</small></div><button class="btn" id="m-${k}" ${Game.runEmbers < it.price ? 'disabled' : ''}>${it.price} ◆</button></div>`;
       }
       const D = it.kind === 'potion' ? potionById(it.id) : it.kind === 'relic' ? relicById(it.id) : it.kind === 'minor' ? ITEMS.find(x => x.id === it.id) : null;
-      const name = D ? D.n : it.w.name, col = D ? D.c : RARITY[it.w.rarity].c, desc = D ? D.d : `${RARITY[it.w.rarity].n} ${it.w.type} · ${weaponLine(it.w)}`;
+      const tag = it.kind === 'potion' ? 'Potion' : it.kind === 'relic' ? (D.active ? 'Relic, active' : 'Relic, passive') : it.kind === 'minor' ? 'Small item' : null;
+      const name = D ? D.n : it.w.name, col = D ? D.c : RARITY[it.w.rarity].c, desc = D ? `<span class="ember" style="opacity:.85">${tag}</span> · ${D.d}` : `${RARITY[it.w.rarity].n} ${it.w.type} · ${weaponLine(it.w)}`;
       return `<div class="card"><div class="grow"><b style="color:${col}">${esc(name)}</b><small>${desc}</small></div><button class="btn" id="m-${k}" ${Game.runEmbers < it.price ? 'disabled' : ''}>${it.price} ◆</button></div>`;
     }).join('');
-    Menu.html(`<h2>Wandering Merchant</h2><div class="sub">"Embers for wares, friend." You have <span class="ember">${Game.runEmbers}</span> this run. What you don't spend is banked at the end.</div><div class="list">${rows || '<div class="sub">Sold out.</div>'}</div><button class="btn" id="b-leave">Leave</button>`);
+    Menu.html(`<h2>Wandering Merchant</h2><div class="sub">"Embers for wares, friend." You have <span class="ember">${Game.runEmbers}</span> this run. What you don't spend is banked at the end.</div><div class="list">${rows || '<div class="sub">Sold out.</div>'}</div><button class="btn" id="b-leave">Exit Shop</button>`);
     st.forEach((it, k) => Menu.on('m-' + k, () => {
       if (it.sold || Game.runEmbers < it.price) return;
       if (it.kind === 'sharpen') { const w = p.weapons[p.wi]; if ((w.plus || 0) >= 3) return; Game.runEmbers -= it.price; w.plus = (w.plus || 0) + 1; w.dmg *= 1.06; w.name = w.name.replace(/ \+\d$/, '') + ' +' + w.plus; Snd.play('charge'); Menu.show('merchant'); return; }
