@@ -10,6 +10,7 @@ Emberdeep is Matt's tiny procedural fantasy roguelike: Enter the Gungeon's run-a
 - Don't push while people might be playing if he says they are. A push is a live deploy.
 - "Future idea" messages go in IDEAS.md. Don't start them unless he asks.
 - When you finish a change: say what changed with real numbers, what you tested, and what he should check by playing. Flag anything you changed beyond what he asked.
+- Keep this file and IDEAS.md current. When a design decision changes, update "Design decisions to keep" in the same commit. When an idea ships, delete it from IDEAS.md.
 
 ## Build and deploy
 
