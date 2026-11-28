@@ -9,7 +9,7 @@ python3 -m http.server 8765 >/dev/null 2>&1 & SRV=$!
 trap 'kill $SRV' EXIT
 sleep 1
 mkdir -p tests/out && cd tests/out || exit 1
-QUICK="pits balance_rules room_shapes_chasms route_layouts retreat_trials_champions cubes_slime_bag corpse_recovery dev_mode save_export qr_handshake coop_3p coop_inputs coop_late_join_drop mobile_hud loot_curves"
+QUICK="pits run_summary balance_rules room_shapes_chasms route_layouts retreat_trials_champions cubes_slime_bag corpse_recovery dev_mode save_export qr_handshake coop_3p coop_inputs coop_late_join_drop mobile_hud loot_curves"
 SLOW="fullrun_fighter fullrun_mage fullrun_ranger"
 LIST="$QUICK"; [ "$1" = all ] && LIST="$QUICK $SLOW"
 for t in $LIST; do echo "== $t"; timeout 600 python3 "../$t.py" 2>&1 | grep -v "agent-proxy" | tail -4; done

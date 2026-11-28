@@ -357,6 +357,7 @@ const Game = {
   onDeath() { this.deadT = 1.4; Music.target = 0; },
   end(won) {
     this.state = won ? 'win' : 'dead';
+    this.sum = runSummary();
     if (this.mode === 'campaign') { Music.on = false; Snd.play(won ? 'portal' : 'death'); Campaign.finish(won); return; }
     Meta.data.embers += this.runEmbers;
     Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, World.depth);
@@ -541,11 +542,13 @@ const Menu = {
       const p = World.meP(), won = name === 'win';
       this.html(`<h1 style="font-size:clamp(36px,7vw,60px)">${won ? 'ESCAPED' : 'FALLEN'}</h1>
         <div class="sub">${won ? 'You climbed out of the deep. It will be waiting.' : `Lost on level ${levelLabel(World.world, World.level)}, ${World.theme.n}.`}</div>
-        <div class="stats"><span>Class</span><span>${CLASSES[Game.cls].n}</span><span>Seed</span><span>${Game.seed}</span><span>Level reached</span><span>${levelLabel(World.world, World.level)}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span><span>Foes slain</span><span>${p.kills}</span><span>Items</span><span>${p.items.length}</span><span>Embers banked</span><span class="ember">+${Game.runEmbers}</span></div>
+        <div class="stats"><span>Class</span><span>${CLASSES[Game.cls].n}</span><span>Seed</span><span>${Game.seed}</span><span>Level reached</span><span>${levelLabel(World.world, World.level)}</span><span>Time</span><span>${fmtTime(Game.runTime)}</span><span>Embers banked</span><span class="ember">+${Game.runEmbers}</span></div>
+        ${summaryHtml(Game.sum)}
         <button class="btn" id="b-again">Same Seed Again</button>
         <button class="btn" id="b-new">New Seed</button>
         <div class="row"><button class="btn small" id="b-save">Save Seed</button><button class="btn small" id="b-sanct">Sanctum · ${M.embers} ◆</button></div>
         <button class="btn small" id="b-title">Title</button>`);
+      drawPortraits();
       this.on('b-again', () => Game.newRun(Game.seed, Game.cls));
       this.on('b-new', () => { World.map = null; this.show('class'); });
       this.on('b-save', () => { Game.saveSeed(); document.getElementById('b-save').textContent = 'Saved ✓'; });
@@ -568,6 +571,35 @@ function statBlock(p) {
     ['Potion', p.potion ? potionById(p.potion).n : '-'], ['Relic', p.relic ? relicById(p.relic).n : '-'],
   ];
   return rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
+}
+// ---- run summary: who got you, and how each player's run went ----
+function runSummary() {
+  return World.players.map(p => ({ slot: p.slot, cls: p.cls, kills: p.kills, items: p.items.length, down: !!(p.dead || p.downed), killer: p.killer || null, rs: p.rs || World.newRunStats() }));
+}
+function fmtHearts(h) { const half = Math.round(h), w = Math.floor(half / 2), odd = half % 2 === 1; return w ? w + (odd ? '½' : '') : odd ? '½' : '0'; } // hp is in half hearts
+function killerText(k) { return k ? esc(k.how ? `${k.n}'s ${k.how}` : k.n) : 'Something unseen'; }
+function favWeapon(rs) { let best = '', n = 0; for (const k in rs.wk) if (rs.wk[k] > n) { n = rs.wk[k]; best = k; } return best ? `${esc(best)} <small>(${n})</small>` : '-'; }
+function summaryHtml(sum) {
+  if (!sum || !sum.length) return '';
+  const fmt = n => Math.round(n).toLocaleString();
+  const rows = [
+    ['Foes slain', s => s.kills], ['Attacks', s => fmt(s.rs.atk)], ['Damage dealt', s => fmt(s.rs.dmg)], ['Biggest hit', s => fmt(s.rs.best)],
+    ['Hearts lost', s => fmtHearts(s.rs.lost)], ['Hearts restored', s => fmtHearts(s.rs.healed)], ['Items', s => s.items], ['Favorite weapon', s => favWeapon(s.rs)],
+  ];
+  const killer = s => s.down ? `<div class="killer"><canvas width="128" height="128" data-pk="${s.slot}"></canvas><div><small>Felled by</small><b>${killerText(s.killer)}</b></div></div>` : '';
+  if (sum.length === 1) {
+    const s = sum[0];
+    return `${killer(s)}<div class="stats">${rows.map(([l, f]) => `<span>${l}</span><span>${f(s)}</span>`).join('')}</div>`;
+  }
+  const me = World.meP(), head = sum.map(s => `<th>${CLASSES[s.cls] ? CLASSES[s.cls].n : '?'}${me && s.slot === me.slot ? '<small>you</small>' : ''}</th>`).join('');
+  const killRow = `<tr><td>Felled by</td>${sum.map(s => `<td>${s.down ? `<canvas width="96" height="96" data-pk="${s.slot}"></canvas>${killerText(s.killer)}` : '<span class="secret">Standing</span>'}</td>`).join('')}</tr>`;
+  return `<table class="sumtbl"><tr><th></th>${head}</tr>${killRow}${rows.map(([l, f]) => `<tr><td>${l}</td>${sum.map(s => `<td>${f(s)}</td>`).join('')}</tr>`).join('')}</table>`;
+}
+function drawPortraits() {
+  for (const cv of document.querySelectorAll('canvas[data-pk]')) {
+    const s = (Game.sum || []).find(q => String(q.slot) === cv.dataset.pk);
+    if (s && s.killer && s.killer.type) Render.portrait(cv, s.killer); else Render.portrait(cv, null);
+  }
 }
 function fmtTime(s) { s = Math.floor(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 

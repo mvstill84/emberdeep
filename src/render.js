@@ -466,6 +466,20 @@ const Render = {
     if (w.cat === 'magic') { c.globalCompositeOperation = 'lighter'; this.drawGlow(col, p.x + Math.cos(a) * (off + size * 0.45), p.y + Math.sin(a) * (off + size * 0.45), 14, 0.7); c.globalCompositeOperation = 'source-over'; }
   },
 
+  // the end screen's killer portrait: draw a stand-in of the monster with the normal enemy art
+  portrait(cv, k) {
+    const c = cv.getContext('2d'), S = cv.width; c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, S, S);
+    if (!k || !k.type) { c.fillStyle = '#ff8a8a'; c.font = `800 ${S * 0.5}px system-ui`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('☠', S / 2, S / 2 + 2); return; }
+    let B = null; if (k.type === 'boss') for (const w of WORLDS) if (w && w.bosses) B = B || w.bosses.find(b => b.id === k.bid) || null;
+    const D = k.type === 'boss' ? { c: B ? B.c : '#ff7a3a', r: k.r } : EDEF[k.type] || { c: '#ccc' };
+    const q = World.players[0] || { x: 0, y: 0 }, r = k.r || D.r || 10;
+    const e = { type: k.type, D, B, boss: k.type === 'boss', look: k.look, champ: k.champ, x: q.x - 160, y: q.y + 50, r, t: 1, spawnT: 0, flash: 0, freeze: 0, burn: 0, chill: 0, bones: 0, st: 0, state: 0, n: 0, face: 0, spin: 0, hp: 1, maxHp: 1, kx: 0, ky: 0 };
+    const sc = S * 0.3 / r, old = this.c;
+    c.setTransform(sc, 0, 0, sc, S / 2 - e.x * sc, S / 2 - e.y * sc);
+    this.c = c;
+    try { this.enemy(e); } catch (err) { c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = D.c; c.beginPath(); c.arc(S / 2, S / 2, S * 0.3, 0, TAU); c.fill(); }
+    finally { this.c = old; c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; }
+  },
   enemy(e) {
     const c = this.c, t = World.time;
     if (e.spawnT > 0) {

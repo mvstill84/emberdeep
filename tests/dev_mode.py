@@ -4,7 +4,7 @@ from playwright.sync_api import sync_playwright
 with sync_playwright() as pw:
     b=pw.chromium.launch(executable_path=os.environ.get('CHROME','/usr/bin/google-chrome')); pg=b.new_page(viewport={'width':1280,'height':800})
     errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
-    pg.goto('file:///home/claude/emberdeep/index.html')
+    pg.goto(BASE+'/index.html')
     pg.evaluate("()=>{localStorage.clear();Meta.data.embers=123;Meta.save();Campaign.create(0,'Real','fighter');Meta.save()}")
     pg.reload(); pg.wait_for_timeout(500)
     pg.click('#b-seed'); pg.fill('#seedin','power overwhelming'); pg.click('#b-go')

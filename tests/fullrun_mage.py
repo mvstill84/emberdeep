@@ -10,7 +10,7 @@ async def main():
         pg = await b.new_page(viewport={'width':1280,'height':800})
         errs=[]
         pg.on('pageerror', lambda e: errs.append('PAGEERR '+str(e)))
-        await pg.goto('file:///home/claude/emberdeep/index.html')
+        await pg.goto(BASE+'/index.html')
         await pg.evaluate("()=>{const M=__emberdeep.Meta;M.data.unlocks={codexE:1,codexA:1,relics:1,ranger:1,mage:1}}")
         await pg.evaluate("()=>__emberdeep.Game.newRun('TESTSEED','mage')")
         for lv in range(12):

@@ -11,7 +11,6 @@ Things Matt has asked for "later". Nothing here is started unless he says so. Ad
 - WoW-style item levels tied to worlds.
 
 ## Screens and polish
-- Death / run summary screen: what killed you (needs every damage source to carry a name, e.g. "Goblin archer's arrow", "Spike pit"), time, embers, shots fired, health lost and restored, kills. Maybe a portrait of the killer and the room. One column per player in co-op.
 - Dev-mode-only DPS readout on item cards (offered, Matt hasn't answered).
 - Frozen copies of old builds at /emberdeep/bNN/ for comparing (offered).
 

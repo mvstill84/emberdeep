@@ -391,7 +391,7 @@ const World = {
     this.traps.push({ kind: 'acid', x, y, r, life, max: life, ph: R() * 9, b: Array.from({ length: 3 }, () => [R.range(-0.3, 0.3) * r, R.range(-0.25, 0.25) * r, r * R.range(0.55, 0.8)]) });
   },
   trapDmg(e, f) { return Math.max(8, e.maxHp * f); },
-  hurtByTrap(e, n) { this.damage(e, n, { x: e.x, y: e.y, depth: 1, burn: true, elem: 'none' }); },
+  hurtByTrap(e, n) { this.damage(e, n, { trap: true, x: e.x, y: e.y, depth: 1, burn: true, elem: 'none' }); },
   pitFall(t, q, isP) { // drop in, take the hit, climb out at the rim
     if (t.hidden) { t.hidden = false; this.burst(t.x, t.y, 26, '#6a8a4a', 180, 0.5); Snd.play('heavy'); }
     let a = Math.atan2(q.y - t.y, q.x - t.x); if (q.x === t.x && q.y === t.y) a = R() * TAU;
@@ -399,7 +399,7 @@ const World = {
     let s = rim(Math.PI); if (this.solidAt(s.x, s.y)) s = rim(0); if (this.solidAt(s.x, s.y)) s = this.freeSpot(s.x, s.y);
     q.x = s.x; q.y = s.y;
     this.burst(q.x, q.y, 10, '#8a7a5a', 120, 0.4);
-    if (isP) { q.roll = 0; q.pushX = q.pushY = 0; this.text(q.x, q.y - 24, 'Pitfall!', '#ffb057'); this.hurt(q, 1); Render.kick(5); }
+    if (isP) { q.roll = 0; q.pushX = q.pushY = 0; this.text(q.x, q.y - 24, 'Pitfall!', '#ffb057'); this.hurt(q, 1, null, { n: 'Pit trap' }); Render.kick(5); }
     else { q.kx = q.ky = 0; q.stun = Math.max(q.stun || 0, 0.6); this.hurtByTrap(q, this.trapDmg(q, 0.35)); }
   },
   updTraps(dt) {
@@ -419,7 +419,7 @@ const World = {
         const c = (now + t.ph) % 2.8, st = c < 1.9 ? 0 : c < 2.35 ? 1 : 2;
         if (first) { if (st === 2 && t.st !== 2) t.hit = new Set(); t.st = st; }
         if (st === 2) {
-          if (pOk && !t.hit.has(p) && d2(t.x, t.y, p.x, p.y) < (t.r + p.r * 0.4) ** 2) { t.hit.add(p); this.hurt(p, 1); }
+          if (pOk && !t.hit.has(p) && d2(t.x, t.y, p.x, p.y) < (t.r + p.r * 0.4) ** 2) { t.hit.add(p); this.hurt(p, 1, null, { n: 'Spike trap' }); }
           for (const e of foes) if (!FLIERS.has(e.type) && !t.hit.has(e) && d2(t.x, t.y, e.x, e.y) < (t.r + e.r * 0.4) ** 2) { t.hit.add(e); this.hurtByTrap(e, this.trapDmg(e, 0.25)); }
         }
       } else if (t.kind === 'gas') {
@@ -443,8 +443,8 @@ const World = {
     if (pOk) {
       p.trapSlow = slow;
       // acid and gas: a moment to step out, then half a heart every second you stay
-      p.acidT = inAcid ? (p.acidT || 0) + dt : 0; if (p.acidT >= 0.8) { p.acidT = -0.2; this.text(p.x, p.y - 24, 'Acid!', '#a8ff4a'); this.hurt(p, 1); }
-      p.gasT = inGas ? (p.gasT || 0) + dt : 0; if (p.gasT >= 0.8) { p.gasT = -0.2; this.text(p.x, p.y - 24, 'Poison gas!', '#b6d86a'); this.hurt(p, 1); }
+      p.acidT = inAcid ? (p.acidT || 0) + dt : 0; if (p.acidT >= 0.8) { p.acidT = -0.2; this.text(p.x, p.y - 24, 'Acid!', '#a8ff4a'); this.hurt(p, 1, null, { n: 'Acid' }); }
+      p.gasT = inGas ? (p.gasT || 0) + dt : 0; if (p.gasT >= 0.8) { p.gasT = -0.2; this.text(p.x, p.y - 24, 'Poison gas!', '#b6d86a'); this.hurt(p, 1, null, { n: 'Poison gas' }); }
     }
     // stalactites: a shadow, then a rock
     const rm = this.room;
@@ -545,7 +545,7 @@ const World = {
       cls: Game.cls || 'fighter', guard: (Game.cls || 'fighter') === 'fighter', guardT: 0, weapons: ch ? Campaign.loadoutWeapons(ch) : C.kit.map(starter),
       wi: 0, cd: 0, charge: 0, echo: 0, swings: [], items: [], syn: [], st,
       hooks: { shoot: [], hit: [], kill: [], roll: [], hurt: [], clear: [] },
-      revives: 0, kills: 0, embers: 0, dead: false, color: '#ffe9c4', swingDir: 1,
+      revives: 0, kills: 0, embers: 0, rs: this.newRunStats(), killer: null, lastWho: null, dead: false, color: '#ffe9c4', swingDir: 1,
       mana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), maxMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), manaRegen: C.regen, baseRegen: C.regen, baseMana: maxMana + (ch ? 2 * (ch.lvl - 1) : 0), exhausted: false, keys: 0, stolen: null,
       potion: ch ? ch.load.potion : null, relic: ch ? ch.load.relic : null, relicCd: 0, buffs: [], roomsCleared: 0, dispReady: false, auraT: 0, manaIdle: 0, lungeWin: 0, lunge: 0, blinkInv: 0, trapT: 0,
     };
@@ -648,7 +648,8 @@ const World = {
     if (this.room && this.locked) { this.flowT -= dt; if (this.flowT <= 0) { this.flowT = 0.15; this.buildFlow(this.decoy ? [this.decoy] : this.lives()); } }
     this.timeStopT -= dt;
     this.updAllies(dt);
-    if (this.timeStopT <= 0) for (const e of this.enemies) this.updEnemy(e, dt);
+    if (this.timeStopT <= 0) for (const e of this.enemies) { this.foeCtx = e; this.updEnemy(e, dt); }
+    this.foeCtx = null;
     const en = this.enemies;
     for (let i = 0; i < en.length; i++) for (let j = i + 1; j < en.length; j++) {
       const a = en[i], b = en[j]; if (a.dead || b.dead || a.bones > 0 || b.bones > 0 || a.ghost || b.ghost) continue;
@@ -877,7 +878,7 @@ const World = {
     const pr = Object.assign({
       x: p.x + Math.cos(a) * 12, y: p.y + Math.sin(a) * 12, owner: 'p', life: 1.1, pierce: hasQ(w, 'pierce') ? 1 : 0,
       bounce: p.st.bounce, elem: w.elem, homing: p.st.homing + (hasQ(w, 'seeking') ? 2.5 : 0) + (w.elem === 'arcane' ? 1.2 : 0),
-      hit: new Set(), depth: 0, p, wcat: w.cat, leech: hasQ(w, 'leech'), color: ELEM[w.elem].c, stun: hasQ(w, 'stun') && R.chance(0.25) ? 0.7 : 0,
+      hit: new Set(), depth: 0, p, wn: w.name, wcat: w.cat, leech: hasQ(w, 'leech'), color: ELEM[w.elem].c, stun: hasQ(w, 'stun') && R.chance(0.25) ? 0.7 : 0,
     }, o);
     pr.vx = Math.cos(a) * o.speed; pr.vy = Math.sin(a) * o.speed;
     if (pr.kind !== 'spark' && pr.kind !== 'bomb') pr.pierce += p.st.pierceAdd;
@@ -885,7 +886,7 @@ const World = {
     this.projs.push(pr); return pr;
   },
   fireBow(p, w) {
-    const c = p.charge, full = c >= 1, n = this.shotCount(p, w), cm = this.critRoll(p, w);
+    const c = p.charge, full = c >= 1, n = this.shotCount(p, w), cm = this.critRoll(p, w); if (p.rs) p.rs.atk++;
     for (let i = 0; i < n; i++) {
       const a = p.aim + (i - (n - 1) / 2) * 0.1;
       this.mkProj(p, w, a, { speed: w.speed * (0.55 + 0.45 * c), r: full ? 5 : 4, kind: 'arrow', life: 1.3, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * (0.3 + 0.7 * c) * (full ? 1.3 : 1) * cm * this.twinM(w), crit: cm > 1, pierce: (full ? 1 : 0) + (hasQ(w, 'pierce') ? 1 : 0), full });
@@ -893,11 +894,13 @@ const World = {
     Snd.play('arrow'); Render.kick(full ? 3 : 1);
   },
   fireCrossbow(p, w) {
+    if (p.rs) p.rs.atk++;
     const n = this.shotCount(p, w), cm = this.critRoll(p, w);
     for (let i = 0; i < n; i++) this.mkProj(p, w, p.aim + (i - (n - 1) / 2) * 0.09, { speed: w.speed, r: 4, kind: 'arrow', full: true, life: 1.2, dmg: w.dmg * p.st.dmg * p.st.rangedDmg * cm * this.twinM(w), crit: cm > 1, pierce: 99 });
     Snd.play('arrow'); Snd.play('thunk'); Render.kick(3);
   },
   fireBolt(p, w) {
+    if (p.rs) p.rs.atk++;
     const n = this.shotCount(p, w), staff = w.type === 'staff';
     for (let i = 0; i < n; i++) {
       const cm = this.critRoll(p, w), a = p.aim + (i - (n - 1) / 2) * 0.16 + R.range(-w.spread, w.spread);
@@ -906,6 +909,7 @@ const World = {
     Snd.play('bolt');
   },
   cast(p, w) {
+    if (p.rs) p.rs.atk++;
     const dmg = w.dmg * p.st.dmg * p.st.magicDmg, a = p.aim, cm = this.critRoll(p, w);
     if (w.spell === 'fireball') {
       this.mkProj(p, w, a, { speed: 300, r: 8, kind: 'fireball', life: 1.4, dmg: dmg * 0.3, blast: { rad: 74, dmg: dmg * cm }, crit: cm > 1, pierce: 0, bounce: 0 });
@@ -930,7 +934,8 @@ const World = {
     if (lunge) { Render.kick(5); this.burst(p.x + Math.cos(a) * reach * 0.6, p.y + Math.sin(a) * reach * 0.6, 14, '#ffd27a', 200, 0.35); }
     p.swingDir = -p.swingDir;
     const dur = { sword: 0.15, axe: 0.21, hammer: 0.22, spear: 0.12 }[type];
-    const src = { melee: true, wtype: type, dmg, elem: w.elem, x: p.x, y: p.y, depth: 0, p, leech: hasQ(w, 'leech'), crit: cm > 1, blunt: type === 'hammer', stun: type === 'hammer' ? 0.9 : hasQ(w, 'stun') && R.chance(0.25) ? 0.7 : 0 };
+    if (!echo && p.rs) p.rs.atk++;
+    const src = { melee: true, wtype: type, wn: w.name, dmg, elem: w.elem, x: p.x, y: p.y, depth: 0, p, leech: hasQ(w, 'leech'), crit: cm > 1, blunt: type === 'hammer', stun: type === 'hammer' ? 0.9 : hasQ(w, 'stun') && R.chance(0.25) ? 0.7 : 0 };
     const sw = { a, arc, reach, t: 0, dur, color: ELEM[w.elem].c, dir: p.swingDir, kind: type, dmg, src, hit: new Set(), tiles: new Set() };
     p.swings.push(sw); this.cutShots(p, sw); this.swingHits(p, sw);
     Snd.play(type === 'hammer' || type === 'axe' ? 'heavy' : 'swing');
@@ -1015,6 +1020,7 @@ const World = {
     if (!e.boss && !src.crit && !src.burn && e.hp >= e.maxHp - 0.01) dmg = Math.min(dmg, e.maxHp * 0.6);
     if (Dev.active('oneHit') && !src.burn) dmg = Math.max(dmg, e.hp + 1);
     if (Dev.active('dmgNums')) this.texts.push({ x: e.x + R.range(-8, 8), y: e.y - e.r - 6, s: String(Math.round(dmg)), c: src.crit ? '#ffe066' : src.burn ? '#ff9a5a' : '#ffffff', life: 0.8 });
+    if (p.rs && !src.trap) { p.rs.dmg += Math.max(0, Math.min(dmg, e.hp)); if (!src.burn) p.rs.best = Math.max(p.rs.best, dmg); }
     e.hp -= dmg; e.flash = 0.09;
     if (src.crit) this.text(e.x, e.y - e.r - 6, Math.round(dmg) + '!', '#ffd27a');
     if (src.stun && !(e.ccImm > 0)) { const s = src.stun * (e.boss ? 0.12 : 1); e.stun = Math.max(e.stun || 0, s); e.ccImm = s + 2; } // then two seconds where stuns and freezes slide off
@@ -1038,7 +1044,7 @@ const World = {
       if (depth === 0 || src.shard) for (const el of p.st.addElem) elems.add(el);
       if (src.extraElem) elems.add(src.extraElem);
       const mg = p.cls === 'mage';
-      if (elems.has('fire')) { e.burn = 2.6 * pow * (mg ? 1.5 : 1); e.burnDmg = Math.max(e.burnDmg || 0, 3 * p.st.dmg * pow); }
+      if (elems.has('fire')) { e.burnS = p.slot; e.burn = 2.6 * pow * (mg ? 1.5 : 1); e.burnDmg = Math.max(e.burnDmg || 0, 3 * p.st.dmg * pow); }
       if (elems.has('frost')) { e.chill = 1.8 * pow; if (!(e.ccImm > 0) && R.chance((e.boss ? 0.02 : 0.12) * pow * (mg ? 2 : 1))) { e.freeze = 1.1; e.ccImm = 3.1; } }
       if (elems.has('storm') && depth < 2 && R.chance(0.3 * pow)) this.chain(e, dmg * 0.5, depth + 1, p, e.x, e.y, mg ? 3 : 2);
       if (this.hasSyn('steam') && e.burn > 0 && e.chill > 0 && !src.steam && depth < 3) {
@@ -1069,6 +1075,7 @@ const World = {
     this.burst(e.x, e.y, 8, '#ffffff', 120, 0.3);
     Snd.play('kill'); Render.kick(e.boss ? 14 : 3);
     p.kills++; Meta.data.stats.kills++;
+    if (p.rs) { const wn = src.wn || (src.proj && src.proj.wn) || (p.weapons[p.wi] || {}).name; if (wn) p.rs.wk[wn] = (p.rs.wk[wn] || 0) + 1; }
     Game.runXp += e.boss ? 40 * this.world : e.type === 'mimic' ? 20 : e.minion ? 1 : 2 * e.D.embers;
     const em = Math.round((e.boss ? 12 * this.world : e.D.embers) * (Game.mods.emberMult || 1) * (p.relic === 'amulet' ? 1.25 : 1) + (p.relic === 'amulet' ? R() * 0.5 : 0));
     for (let i = 0; i < em; i++) this.pickups.push({ kind: 'ember', x: e.x, y: e.y, vx: R.range(-120, 120), vy: R.range(-120, 120), t: 0 });
@@ -1083,7 +1090,7 @@ const World = {
   },
   heal(n, p = this.cur || this.players[0]) {
     if (!p || p.hp >= p.maxHp) return;
-    p.hp = Math.min(p.maxHp, p.hp + n); Snd.play('heart');
+    const was = p.hp; p.hp = Math.min(p.maxHp, p.hp + n); if (p.rs) p.rs.healed += p.hp - was; Snd.play('heart');
     this.text(p.x, p.y - 20, '+' + (n / 2) + '♥', '#ff5470');
   },
   explode(x, y, rad, dmg, depth, color, extra = {}) {
@@ -1130,7 +1137,7 @@ const World = {
     const ok = p.safeMap === this.map; // a spot from this level, or failing that, back the way you came
     const s = this.freeSpot(ok ? p.safeX : p.x - (p.rdx || 0) * T * 3, ok ? p.safeY : p.y - (p.rdy || 0) * T * 3); p.x = s.x; p.y = s.y;
     this.text(p.x, p.y - 24, 'Fell!', '#ffb057'); this.burst(p.x, p.y, 10, '#bfe3ff', 120, 0.4);
-    p.inv = 0; p.blinkInv = 0; this.hurt(p, 1); p.inv = Math.max(p.inv, 1.2);
+    p.inv = 0; p.blinkInv = 0; this.hurt(p, 1, null, { n: 'A fall into the dark' }); p.inv = Math.max(p.inv, 1.2);
   },
   enemyFall(e) { // shoved into a pit: regular foes are gone, champions climb back out a quarter lighter
     this.burst(e.x, e.y, 14, '#8a7a6a', 140, 0.5); Snd.play('kill');
@@ -1139,7 +1146,12 @@ const World = {
     this.text(e.x, e.y - 24, 'Fell!', '#ffb057');
     e.reformed = true; e.hp = 0; this.kill(e, { p: this.cur || this.players[0], blunt: true, pit: true, x: e.x, y: e.y });
   },
-  hurt(p, n = 1, from) {
+  // run summary: who or what did the damage, kept small since it rides along on shots and warnings
+  SHOT_N: { arrowE: 'arrow', web: 'web', skull: 'skull', seed: 'seed', feather: 'feather', bone: 'bone' },
+  WARN_N: { slam: 'slam', rain: 'barrage', claw: 'claws', boulder: 'boulder', rock: 'rockfall', root: 'roots', acid: 'acid' },
+  who(e, how) { return { n: e.boss ? e.title : e.D.n, how: how || '', type: e.type, bid: e.bid || '', look: e.look || '', champ: e.champ || '', r: e.r }; },
+  newRunStats() { return { atk: 0, lost: 0, healed: 0, dmg: 0, best: 0, wk: {} }; },
+  hurt(p, n = 1, from, who) {
     if (p.inv > 0 || p.roll > 0.03 || p.lunge > 0 || p.blinkInv > 0 || p.dead || p.downed || p.inPortal || Game.state !== 'play') return;
     if (Dev.active('god')) { this.text(p.x, p.y - 24, 'God mode', '#ff6bd5'); p.inv = 0.4; return; }
     if (p.relic === 'displace' && p.dispReady) { p.dispReady = false; p.inv = 0.8; this.text(p.x, p.y - 24, 'Missed!', '#7fd8ff'); this.burst(p.x, p.y, 14, '#7fd8ff', 160, 0.4); Snd.play('blink'); return; }
@@ -1147,7 +1159,8 @@ const World = {
       p.guard = false; p.guardT = 0; p.inv = 0.8; this.text(p.x, p.y - 24, 'Blocked!', '#cfe3ff'); this.burst(p.x, p.y, 18, '#cfe3ff', 200, 0.4); Snd.play('deflect'); Render.kick(4);
       return;
     }
-    p.hp -= n * (p.st.hurtMult || 1); p.inv = 1.15;
+    const lost = Math.min(p.hp, n * (p.st.hurtMult || 1)); p.hp -= n * (p.st.hurtMult || 1); p.inv = 1.15;
+    if (p.rs) p.rs.lost += lost; p.lastWho = who || null;
     if (from) { const a = Math.atan2(p.y - from.y, p.x - from.x); p.pushX = Math.cos(a) * 300; p.pushY = Math.sin(a) * 300; } // hits shove you, pits included
     Snd.play('hurt');
     if (p === this.meP()) { Render.kick(9); Game.hitstop(this.coopN() > 1 ? 0.03 : 0.09); Render.flash = 0.25; } else if (typeof Coop !== 'undefined') Coop.fxTo(p.slot, 'hurt');
@@ -1160,10 +1173,10 @@ const World = {
         this.explode(p.x, p.y, 140, 40, 2, '#ffb02e');
         const i = p.items.indexOf('phoenix'); if (i >= 0) p.items.splice(i, 1);
       } else if (this.coopN() > 1) { // downed: a teammate can bring you back
-        p.downed = true; p.hp = 0; p.reviveT = 0; p.roll = 0; p.charge = 0; this.burst(p.x, p.y, 40, '#ffe9c4', 220, 0.8);
+        p.killer = p.lastWho; p.downed = true; p.hp = 0; p.reviveT = 0; p.roll = 0; p.charge = 0; this.burst(p.x, p.y, 40, '#ffe9c4', 220, 0.8);
         this.text(p.x, p.y - 30, 'Down!', '#ff6b6b');
         if (!this.players.some(q => this.live(q))) { for (const q of this.players) q.dead = true; Game.onDeath(); }
-      } else { p.dead = true; this.burst(p.x, p.y, 60, '#ffe9c4', 260, 1); Game.onDeath(); }
+      } else { p.killer = p.lastWho; p.dead = true; this.burst(p.x, p.y, 60, '#ffe9c4', 260, 1); Game.onDeath(); }
     }
   },
 
@@ -1186,7 +1199,7 @@ const World = {
   eshot(x, y, a, sp, kind = 'orb', r = 6, extra) {
     sp *= (1 + 0.035 * (this.depth - 1)) * ((Game.diff && Game.diff.shot) || 1);
     const color = { arrowE: '#ffd27a', web: '#e8e0ff', skull: '#b6ff7a', seed: '#c8ff7a', feather: '#e8d0a8', bone: '#e8e2cf' }[kind] || '#ff4d8d';
-    const pr = { x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: 'e', life: 6, r, kind, color, hit: null };
+    const pr = { x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: 'e', life: 6, r, kind, color, hit: null, who: this.foeCtx ? this.who(this.foeCtx, this.SHOT_N[kind] || 'bolt') : this.ctxWho ? Object.assign({}, this.ctxWho, { how: this.SHOT_N[kind] || 'bolt' }) : null };
     if (extra) Object.assign(pr, extra);
     this.projs.push(pr); return pr;
   },
@@ -1195,7 +1208,7 @@ const World = {
     if (e.spawnT > 0) { e.spawnT -= dt; return; }
     e.flash -= dt; e.t += dt; if (e.ccImm > 0) e.ccImm -= dt;
     if (e.bones > 0) { e.bones -= dt; if (e.bones <= 0) { e.flash = 0.2; this.burst(e.x, e.y, 10, '#e8e2cf', 120, 0.3); Snd.play('spawn'); } return; }
-    if (e.burn > 0) { e.burn -= dt; e.burnTick -= dt; if (e.burnTick <= 0) { e.burnTick = 0.45; this.damage(e, e.burnDmg, { x: e.x, y: e.y, depth: 1, burn: true, elem: 'none' }); this.part(e.x + R.range(-6, 6), e.y, R.range(-15, 15), -60, 0.5, 3, '#ff7a2a', true); } }
+    if (e.burn > 0) { e.burn -= dt; e.burnTick -= dt; if (e.burnTick <= 0) { e.burnTick = 0.45; this.damage(e, e.burnDmg, { x: e.x, y: e.y, depth: 1, burn: true, elem: 'none', p: this.players.find(q => q.slot === e.burnS) }); this.part(e.x + R.range(-6, 6), e.y, R.range(-15, 15), -60, 0.5, 3, '#ff7a2a', true); } }
     if (e.chill > 0) e.chill -= dt;
     const kd = Math.exp(-9 * dt);
     if (e.kx || e.ky) {
@@ -1253,7 +1266,7 @@ const World = {
         e.cool -= dt * slow; e.face = toP;
         if (e.cool <= 0 && dist < 380) {
           const tx = p.x + p.vx * 0.6 + R.range(-24, 24), ty = p.y + p.vy * 0.6 + R.range(-24, 24);
-          if (!this.solidAt(tx, ty)) { this.hazards.push({ x: tx, y: ty, r: 14, arm: 0.9, life: 8, fx: e.x, fy: e.y }); Snd.play('eshot'); }
+          if (!this.solidAt(tx, ty)) { this.hazards.push({ x: tx, y: ty, r: 14, arm: 0.9, life: 8, fx: e.x, fy: e.y, who: this.who(e, 'snare') }); Snd.play('eshot'); }
           e.cool = R.range(2.6, 3.8);
         }
         break;
@@ -1340,7 +1353,7 @@ const World = {
         p.slowT = 2.2;
         if (!p.stolen && p.weapons.length > 1 && !e.holding) { p.stolen = { idx: p.wi, t: 5, by: e }; e.holding = p.weapons[p.wi]; p.wi = 1 - p.wi; p.charge = 0; this.text(p.x, p.y - 24, 'Weapon engulfed!', '#6fe3c8'); Snd.play('fizzle'); }
       }
-      this.hurt(p, e.D.touch, e);
+      this.hurt(p, e.D.touch, e, this.who(e));
     }
   },
   // ---------- bosses: phases, signature mechanics, and move sets per phase ----------
@@ -1377,7 +1390,7 @@ const World = {
       case 'charge': case 'shieldwall':
         if (e.n === 0) { e.face = lerpAng(e.face, toP, 8 * dt); if (e.st <= 0) { e.n = 1; e.st = 0.85; e.charging = true; e.dvx = Math.cos(e.face) * 390; e.dvy = Math.sin(e.face) * 390; Snd.play('roar'); } }
         else {
-          if (e.state === 'shieldwall') { e.fireT = (e.fireT || 0) - dt; if (e.fireT <= 0) { e.fireT = 0.05; this.hazards.push({ x: e.x, y: e.y, r: 20, arm: 0, life: 4.5, fire: true }); } }
+          if (e.state === 'shieldwall') { e.fireT = (e.fireT || 0) - dt; if (e.fireT <= 0) { e.fireT = 0.05; this.hazards.push({ x: e.x, y: e.y, r: 20, arm: 0, life: 4.5, fire: true, who: this.who(e, 'flames') }); } }
           const hit = this.move(e, e.dvx * dt, e.dvy * dt);
           if (hit || e.st <= 0) {
             e.charging = false;
@@ -1557,7 +1570,7 @@ const World = {
     Game.banner(e.name, `${e.title}  ·  ${B.tip}`, 3); Snd.play('boss'); Snd.play('roar'); Render.kick(6);
   },
   // ground warnings: a circle fills up, then whatever is in it gets hit
-  warn(x, y, r, dur, dmg, kind, extra) { const w = Object.assign({ x, y, r, t: 0, dur, dmg, kind }, extra); this.warns.push(w); return w; },
+  warn(x, y, r, dur, dmg, kind, extra) { const w = Object.assign({ x, y, r, t: 0, dur, dmg, kind, who: this.foeCtx ? this.who(this.foeCtx, this.WARN_N[kind]) : { n: kind === 'rock' ? 'A falling stalactite' : 'The dungeon' } }, extra); this.warns.push(w); return w; },
   updWarns(dt) {
     const p = this.players.find(q => !q.dead);
     for (const w of this.warns) {
@@ -1569,8 +1582,8 @@ const World = {
         this.burst(w.x, w.y, 18, col, w.r * 4, 0.4); Render.kick(w.kind === 'slam' || w.kind === 'boulder' ? 10 : 4);
         Snd.play(w.kind === 'slam' ? 'explode' : 'heavy');
         let hitAny = false;
-        if (w.dmg > 0) for (const q of this.players) if (this.live(q) && d2(w.x, w.y, q.x, q.y) < (w.r + q.r * 0.5) ** 2) { hitAny = true; this.hurt(q, w.dmg); }
-        if (w.onFire) w.onFire(w, hitAny);
+        if (w.dmg > 0) for (const q of this.players) if (this.live(q) && d2(w.x, w.y, q.x, q.y) < (w.r + q.r * 0.5) ** 2) { hitAny = true; this.hurt(q, w.dmg, null, w.who); }
+        if (w.onFire) { this.ctxWho = w.who; w.onFire(w, hitAny); this.ctxWho = null; }
       }
     }
     this.warns = this.warns.filter(w => w.t < w.dur + 0.35);
@@ -1727,8 +1740,8 @@ const World = {
     for (const p of this.players) p.slimed = this.live(p) && this.slime.some(s => s.life > 0.6 && d2(s.x, s.y, p.x, p.y) < (s.r * 0.8) ** 2);
     for (const h of this.hazards) {
       h.arm -= dt; h.life -= dt;
-      if (h.fire) { if (R.chance(dt * 6)) this.part(h.x + R.range(-10, 10), h.y, 0, -50, 0.5, 3, '#ff7a2a', true); for (const p of ps) if (d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 4) ** 2 && p.roll <= 0.03 && p.inv <= 0) this.hurt(p, 1); continue; }
-      for (const p of ps) if (h.life > 0 && h.arm <= 0 && d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 2) ** 2 && p.roll <= 0.03 && p.inv <= 0) { h.life = 0; this.hurt(p, 1); this.burst(h.x, h.y, 10, '#c8c8c8', 140, 0.3); }
+      if (h.fire) { if (R.chance(dt * 6)) this.part(h.x + R.range(-10, 10), h.y, 0, -50, 0.5, 3, '#ff7a2a', true); for (const p of ps) if (d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 4) ** 2 && p.roll <= 0.03 && p.inv <= 0) this.hurt(p, 1, null, h.who || { n: 'Flames' }); continue; }
+      for (const p of ps) if (h.life > 0 && h.arm <= 0 && d2(h.x, h.y, p.x, p.y) < (h.r + p.r - 2) ** 2 && p.roll <= 0.03 && p.inv <= 0) { h.life = 0; this.hurt(p, 1, null, h.who || { n: 'A snare' }); this.burst(h.x, h.y, 10, '#c8c8c8', 140, 0.3); }
     }
     this.hazards = this.hazards.filter(h => h.life > 0);
     for (const t of this.ptraps) {
@@ -1978,7 +1991,7 @@ const World = {
         for (const p of this.players) if (this.live(p) && d2(pr.x, pr.y, p.x, p.y) < (pr.r + p.r - 3) ** 2 && p.inv <= 0 && p.roll <= 0.03) {
           pr.dead = true;
           if (p.parryT > 0 || p.lunge > 0) { this.burst(pr.x, pr.y, 6, '#ffffff', 120, 0.25); Snd.play('deflect'); continue; }
-          if (pr.kind === 'web') p.slowT = 1.4; this.hurt(p, 1, { x: pr.x - pr.vx * 0.05, y: pr.y - pr.vy * 0.05 });
+          if (pr.kind === 'web') p.slowT = 1.4; this.hurt(p, 1, { x: pr.x - pr.vx * 0.05, y: pr.y - pr.vy * 0.05 }, pr.who);
         }
       }
     }

@@ -185,7 +185,8 @@ const CampScreens = {
          <div class="sub">${r.banked.length ? 'Added to your stash: <b>' + r.banked.map(esc).join(', ') + '</b>' : 'No new gear this time.'}</div>`
       : `<h1 style="font-size:clamp(34px,7vw,56px)">FALLEN</h1><div class="sub">${r.lost.length ? `Your remains hold <b>${r.lost.map(esc).join(', ')}</b> on level ${levelLabel(World.world, World.level)}. Return to them on your next run.` : 'You lost nothing you had banked.'}</div>`;
     Menu.html(`${body}<div class="stats"><span>Embers kept</span><span class="ember">+${r.embers}</span><span>XP</span><span>+${r.xp}${r.levels ? ` · <b class="secret">Level up! Now ${h.lvl}</b>` : ''}</span>${r.xpNote ? `<span></span><span style="font-size:12px;opacity:.7">${r.xpNote}</span>` : ''}<span>Time</span><span>${fmtTime(Game.runTime)}</span></div>
-      <button class="btn" id="b-hub">Back to ${esc(h.name)}</button>`);
+      ${summaryHtml(Game.sum)}<button class="btn" id="b-hub">Back to ${esc(h.name)}</button>`);
+    drawPortraits();
     Menu.on('b-hub', () => Menu.show('hub', i));
   },
   merchant() {

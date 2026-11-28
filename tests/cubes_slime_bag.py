@@ -5,7 +5,7 @@ with sync_playwright() as pw:
     b=pw.chromium.launch(executable_path=os.environ.get('CHROME','/usr/bin/google-chrome'))
     pg=b.new_page(viewport={'width':1280,'height':800})
     errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
-    pg.goto('file:///home/claude/emberdeep/index.html')
+    pg.goto(BASE+'/index.html')
     pg.evaluate("()=>{localStorage.clear();Meta.data.camp=undefined;Campaign.create(0,'Tess','fighter');Campaign.start(0,1,false)}")
     pg.wait_for_timeout(1500)
     pg.evaluate("()=>{const W=World,r=W.rooms.find(r=>r.type==='combat');const p=W.players[0];p.x=r.mx*32+16;p.y=r.my*32+16;p.inv=99}")

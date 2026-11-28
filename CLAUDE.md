@@ -27,7 +27,7 @@ Emberdeep is Matt's tiny procedural fantasy roguelike: Enter the Gungeon's run-a
 - `data.js`: weapons (`WBASE`, `makeWeapon`, `RARITY`, `QUIRKS`, elements), items, minors (small stackable items), potions, relics, synergies, enemy defs, `RESIST` table.
 - `world.js`: everything in the dungeon. Level generation (branching routes, rooms, shapes, chasms, traps, side rooms), enemies and AI, bosses, champions, combat (`damage`, `hurt`), pickups, co-op player helpers.
 - `render.js`: canvas drawing for the world, tiles, enemies, effects, minimap.
-- `main.js`: HUD, menus (title, pause, end screen), `Game` state, difficulty (`Game.DIFF`).
+- `main.js`: HUD, menus (title, pause, end screen with the run summary: `runSummary`, `summaryHtml`), `Game` state, difficulty (`Game.DIFF`).
 - `campaign.js`: campaign mode, Sanctum unlocks, merchant (`Merchant`, `CampScreens.merchant`).
 - `dev.js`: dev mode. Typing the seed POWEROVERWHELMIN toggles it. Uses a separate save key (`emberdeep.dev` vs the real `emberdeep.v1`). Cheats are off in co-op.
 - `net.js`: networking. Online uses PeerJS (room id `emberdeep-room-<CODE>`, a reliable and an unreliable channel per guest). Offline uses a QR code handshake (compressed SDP).
@@ -47,6 +47,7 @@ Emberdeep is Matt's tiny procedural fantasy roguelike: Enter the Gungeon's run-a
 - No DPS number on item cards (decided against: it would push players back toward chasing numbers). A dev-mode-only readout was offered, not built.
 - Levels branch: 2 or 3 routes (horde, gauntlet, elite), side rooms (challenge trials that collapse if you leave, armory, combat). Leaving a fight freezes it instead of resetting it. Champions have an extra ability (volley, shockwave, blink, summon, quake) and drop Rare+ weapons. No champions on x-1 levels.
 - Co-op: no duplicate classes (first come first served), all classes open in co-op, shared embers and keys, one pick per player from shared loot, revive by standing near a downed friend for 3s (room clear also revives), each player chooses when to enter the portal.
+- Run summary lives on the FALLEN/ESCAPED screen (and the campaign results screen): "Felled by" with the monster's portrait drawn from its real sprite, then kills, attacks, damage dealt, biggest hit, hearts lost/restored, items, favorite weapon (most kills). Co-op shows one column per player. Every `World.hurt(p, n, from, who)` call should pass a `who` ({ n, how } plus monster fields from `World.who(e, how)`); enemy shots, warnings and hazards pick it up from `World.foeCtx` automatically. Stats live in `p.rs` and the host sends them in the `end` message, not in snapshots.
 - On phones the weapon panel sits at the bottom center and the boss bar at the top. The use button label changes with context (PICK UP, TALK, OPEN, ENTER, RECOVER).
 
 ## Testing

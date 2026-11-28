@@ -193,7 +193,7 @@ const Coop = {
   fxTo(slot, kind) { const p = Net.peers.find(q => q.slot === slot); if (p) Net.send(p, { t: 'fx', k: kind }); },
 
   // ---------- packing the world ----------
-  SKIP: new Set(['D', 'B', 'p', 'hit', 'hitSet', 'hooks', 'inp', 'near', 'lastNear', 'salvK', 'onFire', 'room', 'by', 'target', 'twin', 'parent', 'owner_', 'path', 'link', 'safeMap']),
+  SKIP: new Set(['D', 'B', 'p', 'hit', 'hitSet', 'hooks', 'inp', 'near', 'lastNear', 'salvK', 'onFire', 'room', 'by', 'target', 'twin', 'parent', 'owner_', 'path', 'link', 'safeMap', 'rs', 'killer', 'lastWho', 'who']),
   clean(v, depth) {
     if (v === null || v === undefined) return v;
     const t = typeof v;
@@ -341,7 +341,7 @@ const Coop = {
   },
   guestEnd(m) {
     this.inRun = false;
-    Game.runEmbers = m.emb || 0;
+    Game.runEmbers = m.emb || 0; Game.sum = m.sum || null;
     Game.state = m.won ? 'win' : 'dead';
     Meta.data.embers += Game.runEmbers;
     Meta.data.stats.bestDepth = Math.max(Meta.data.stats.bestDepth || 0, m.dep || 0);
@@ -374,7 +374,7 @@ const Coop = {
   Game.banner = function (a, b, d) { banner(a, b, d); if (Coop.on && Coop.host && Coop.inRun) Coop.push(['ban', a, b, d]); };
   const end = Game.end.bind(Game);
   Game.end = function (won) {
-    if (Coop.on && Coop.host && Coop.inRun) { Net.broadcast({ t: 'end', won, emb: Game.runEmbers, dep: World.depth }); Coop.inRun = false; }
+    if (Coop.on && Coop.host && Coop.inRun) { Net.broadcast({ t: 'end', won, emb: Game.runEmbers, dep: World.depth, sum: runSummary() }); Coop.inRun = false; }
     end(won);
   };
   const tp = Game.togglePause.bind(Game);
